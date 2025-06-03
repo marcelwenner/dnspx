@@ -1,0 +1,77 @@
+[package]
+name = "dnspx"
+version = "0.9.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = "0.7"
+
+# Configuration & Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10"
+
+# DNS Protocol (WICHTIG: hickory statt trust-dns!)
+hickory-proto = { version = "0.24", features = ["serde"] }
+hickory-client = { version = "0.24", features = ["dns-over-rustls", "dns-over-https-rustls"] }
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
+
+# CLI & Error Handling
+clap = { version = "4.5", features = ["derive"] }
+thiserror = "1.0"
+inquire = "0.7"
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# File Watching & Networking
+notify = "6.1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+url = { version = "2.5", features = ["serde"] }
+ipnetwork = "0.20"
+
+# AWS Integration
+aws-config = "1.5"
+aws-sdk-sts = "1.39"
+aws-sdk-ec2 = "1.59"
+aws-credential-types = "1.2"
+aws-sdk-apigateway = "1.73.0"
+aws-sdk-rds = "1.90.0"
+aws-sdk-elasticache = "1.77.0"
+aws-sdk-docdb = "1.75.0"
+
+# Terminal Capabilities (Rust 1.70+ nutzt std::io::IsTerminal)
+supports-color = "3.0"
+colored = "2.1"
+humantime-serde = "1.1.1"
+async-trait = "0.1.88"
+chrono = { version = "0.4.41", features = ["serde"] }
+toml = "0.8.22"
+rand = "0.9.1"
+anyhow = "1.0.98"
+dirs = "6.0.0"
+ratatui = { version = "0.29.0", features = ["all-widgets", "crossterm"] }
+aws-smithy-types = "1.3.1"
+aws-types = "1.3.7"
+crossterm = "0.29.0"
+futures = "0.3.31"
+aws-sdk-route53 = "1.79.0"
+aws-sdk-route53resolver = "1.76.0"
+pulldown-cmark = "0.13.0"
+
+
+
+
+[dev-dependencies]
+tokio-test = "0.4"
+assert_matches = "1.5"
+async-std = {version = "1.13.1", features = ["attributes"] }
+httpmock = "0.7.0"
+urlencoding = "2.1.3"
+tempfile = "3.20.0"
+mockall = "0.13.1"

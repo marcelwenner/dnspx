@@ -1,0 +1,35 @@
+routing_rules = []
+
+[server]
+listen_address = "0.0.0.0:53"
+protocols = [
+    "Udp",
+    "Tcp",
+]
+default_query_timeout = "500ms"
+
+[default_resolver]
+nameservers = [
+    "1.1.1.1:53",
+    "8.8.8.8:53",
+]
+strategy = "First"
+timeout = "500ms"
+doh_compression_mutation = false
+
+[cache]
+enabled = true
+max_capacity = 10000
+min_ttl = "1m"
+max_ttl = "1day"
+serve_stale_if_error = true
+serve_stale_max_ttl = "1h"
+
+[logging]
+level = "info"
+format = "Pretty"
+query_log_enabled = false
+
+[cli]
+enable_colors = true
+status_refresh_interval_secs = 5
