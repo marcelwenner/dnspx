@@ -35,7 +35,7 @@ regex = "1.10"
 
 # DNS Protocol
 hickory-proto = { version = "0.24", features = ["serde"], default-features = false }
-hickory-client = { version = "0.24", features = ["dns-over-rustls", "dns-over-https-rustls"], default-features = false }
+hickory-client = { version = "0.25", features = ["dns-over-rustls", "dns-over-https-rustls"], default-features = false }
 
 # Logging & Tracing
 tracing = "0.1"
