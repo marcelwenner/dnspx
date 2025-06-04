@@ -51,7 +51,7 @@ inquire = "0.7"
 moka = { version = "0.12", features = ["future"], default-features = false }
 
 # File Watching & Networking
-notify = "6.1"
+notify = "8.0"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 url = { version = "2.5", features = ["serde"] }
 ipnetwork = "0.21"
