@@ -10,7 +10,7 @@ updates:
     reviewers:
       - "nbyx"
     assignees:
-      - "mbyx" 
+      - "nbyx" 
     commit-message:
       prefix: "deps"
       include: "scope"
