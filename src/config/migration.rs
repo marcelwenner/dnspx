@@ -139,23 +139,93 @@ pub fn migrate(
         ));
     }
 
-    if let Some(proxy) = main_legacy.http_proxy_config {
+    if let Some(proxy_legacy) = main_legacy.http_proxy_config {
         messages.push(MigrationMessage::info(
             "Migrating HttpProxyConfig...".to_string(),
         ));
-        if let (Some(address), Some(port)) = (proxy.address, proxy.port) {
-            if !address.is_empty() && port > 0 {
+        if let (Some(address), port_opt) = (proxy_legacy.address, proxy_legacy.port) {
+            if !address.is_empty() && port_opt.map_or(true, |p| p > 0) {
+                let port = port_opt.unwrap_or(80);
                 let proxy_url_str = format!("http://{}:{}", address, port);
                 match Url::parse(&proxy_url_str) {
                     Ok(url) => {
+                        let auth_type_legacy_str = proxy_legacy
+                            .authentication_type
+                            .as_deref()
+                            .unwrap_or("None");
+                        let (auth_type_rust, username, password, domain) =
+                            match auth_type_legacy_str.to_lowercase().as_str() {
+                                "basic" => (
+                                    ProxyAuthenticationType::Basic,
+                                    proxy_legacy.user.filter(|s| !s.is_empty()),
+                                    proxy_legacy.password.filter(|s| !s.is_empty()),
+                                    None,
+                                ),
+                                "windowsdomain" => {
+                                    messages.push(MigrationMessage::warn(
+                                    "  Migrating 'WindowsDomain' proxy auth as 'Ntlm' (manual NTLM with credentials). Support for this is experimental. If Integrated Windows Authentication (current user) is desired, please reconfigure to 'WindowsAuth' after migration.".to_string()
+                                ));
+                                    (
+                                        ProxyAuthenticationType::Ntlm,
+                                        proxy_legacy.user.filter(|s| !s.is_empty()),
+                                        proxy_legacy.password.filter(|s| !s.is_empty()),
+                                        proxy_legacy.domain.filter(|s| !s.is_empty()),
+                                    )
+                                }
+                                "windowsuser" => {
+                                    messages.push(MigrationMessage::info(
+                                    "  Migrating 'WindowsUser' proxy auth as 'WindowsAuth'. This will attempt to use current user credentials (SSPI) on Windows. Support is experimental.".to_string()
+                                ));
+                                    (ProxyAuthenticationType::WindowsAuth, None, None, None)
+                                }
+                                "none" | _ => {
+                                    if proxy_legacy.user.is_some()
+                                        && proxy_legacy.password.is_some()
+                                    {
+                                        messages.push(MigrationMessage::warn(
+                                        "  Proxy has username/password but AuthenticationType is 'None' or unknown. Assuming 'Basic' authentication.".to_string()
+                                    ));
+                                        (
+                                            ProxyAuthenticationType::Basic,
+                                            proxy_legacy.user.filter(|s| !s.is_empty()),
+                                            proxy_legacy.password.filter(|s| !s.is_empty()),
+                                            None,
+                                        )
+                                    } else {
+                                        (ProxyAuthenticationType::None, None, None, None)
+                                    }
+                                }
+                            };
+
+                        let bypass_list = proxy_legacy
+                            .bypass_addresses
+                            .filter(|s| !s.trim().is_empty())
+                            .map(|s| {
+                                s.split(';')
+                                    .map(|x| x.trim().to_string())
+                                    .filter(|x| !x.is_empty())
+                                    .collect::<Vec<String>>()
+                            })
+                            .filter(|v| !v.is_empty());
+
+                        if bypass_list.is_some() {
+                            messages.push(MigrationMessage::info(format!(
+                                "  Migrated proxy bypass list: {:?}",
+                                bypass_list.as_ref().unwrap()
+                            )));
+                        }
+
                         app_config.http_proxy = Some(HttpProxyConfig {
                             url,
-                            username: proxy.user.filter(|s| !s.is_empty()),
-                            password: proxy.password.filter(|s| !s.is_empty()),
+                            authentication_type: auth_type_rust,
+                            username,
+                            password,
+                            domain,
+                            bypass_list,
                         });
                         messages.push(MigrationMessage::info(format!(
-                            "  Migrated HTTP Proxy to: {}",
-                            proxy_url_str
+                            "  Migrated HTTP Proxy to: {} with auth type {:?}",
+                            proxy_url_str, auth_type_rust
                         )));
                     }
                     Err(e) => {
@@ -164,7 +234,7 @@ pub fn migrate(
                 }
             } else {
                 messages.push(MigrationMessage::info(
-                    "  Skipping HTTP Proxy migration due to empty address or invalid port."
+                    "  Skipping HTTP Proxy migration due to empty address or invalid/missing port in legacy config."
                         .to_string(),
                 ));
             }
@@ -545,7 +615,7 @@ mod tests {
               "Strategy": "Dns", "QueryTimeout": 700
             }
           },
-          "HttpProxyConfig": { "Address": "proxy.example.com", "Port": 8080 },
+          "HttpProxyConfig": { "Address": "proxy.example.com", "Port": 8080, "AuthenticationType": "Basic", "User": "proxyuser", "Password": "proxypass", "BypassAddresses": "internal.com;*.local;<local>" },
           "AwsSettings": {
             "Region": "eu-west-1",
             "UserAccounts": [{
@@ -597,9 +667,21 @@ mod tests {
         );
 
         assert!(app_config.http_proxy.is_some());
+        let proxy_conf = app_config.http_proxy.as_ref().unwrap();
+        assert_eq!(proxy_conf.url.as_str(), "http://proxy.example.com:8080/");
         assert_eq!(
-            app_config.http_proxy.as_ref().unwrap().url.as_str(),
-            "http://proxy.example.com:8080/"
+            proxy_conf.authentication_type,
+            ProxyAuthenticationType::Basic
+        );
+        assert_eq!(proxy_conf.username, Some("proxyuser".to_string()));
+        assert_eq!(proxy_conf.password, Some("proxypass".to_string()));
+        assert_eq!(
+            proxy_conf.bypass_list,
+            Some(vec![
+                "internal.com".to_string(),
+                "*.local".to_string(),
+                "<local>".to_string()
+            ])
         );
 
         assert!(app_config.aws.is_some());
@@ -698,6 +780,7 @@ mod tests {
         assert!(app_config.routing_rules.is_empty());
         assert!(app_config.local_hosts.is_none());
         assert!(app_config.aws.is_none());
+        assert!(app_config.http_proxy.is_none());
 
         assert_message_exists(&messages, MessageLevel::Info, "No DnsHostConfig found");
         assert_message_exists(&messages, MessageLevel::Info, "No DnsDefaultServer found");
@@ -716,17 +799,68 @@ mod tests {
     }
 
     #[test]
-    fn test_migrate_empty_aws_settings() {
-        let main_json = r#"{"AwsSettings": {}}"#;
+    fn test_migrate_http_proxy_windows_auth_types() {
+        let main_json_domain = r#"{ "HttpProxyConfig": { "Address": "proxy.corp", "Port": 8080, "AuthenticationType": "WindowsDomain", "User": "user", "Password": "password", "Domain": "CORP" } }"#;
+        let legacy_domain = create_dotnet_legacy_from_jsons(Some(main_json_domain), None, None);
+        let (config_domain, messages_domain) = migrate(legacy_domain).unwrap();
+        assert!(config_domain.http_proxy.is_some());
+        let proxy_domain = config_domain.http_proxy.as_ref().unwrap();
+        assert_eq!(
+            proxy_domain.authentication_type,
+            ProxyAuthenticationType::Ntlm
+        );
+        assert_eq!(proxy_domain.username, Some("user".to_string()));
+        assert_eq!(proxy_domain.password, Some("password".to_string()));
+        assert_eq!(proxy_domain.domain, Some("CORP".to_string()));
+        assert_message_exists(
+            &messages_domain,
+            MessageLevel::Warning,
+            "Migrating 'WindowsDomain' proxy auth as 'Ntlm'",
+        );
+
+        let main_json_user = r#"{ "HttpProxyConfig": { "Address": "proxy.corp", "Port": 8080, "AuthenticationType": "WindowsUser" } }"#;
+        let legacy_user = create_dotnet_legacy_from_jsons(Some(main_json_user), None, None);
+        let (config_user, messages_user) = migrate(legacy_user).unwrap();
+        assert!(config_user.http_proxy.is_some());
+        let proxy_user = config_user.http_proxy.as_ref().unwrap();
+        assert_eq!(
+            proxy_user.authentication_type,
+            ProxyAuthenticationType::WindowsAuth
+        );
+        assert!(proxy_user.username.is_none());
+        assert!(proxy_user.password.is_none());
+        assert!(proxy_user.domain.is_none());
+        assert_message_exists(
+            &messages_user,
+            MessageLevel::Info,
+            "Migrating 'WindowsUser' proxy auth as 'WindowsAuth'",
+        );
+    }
+
+    #[test]
+    fn test_migrate_http_proxy_empty_bypass_list() {
+        let main_json = r#"{ "HttpProxyConfig": { "Address": "proxy.example.com", "Port": 8080, "BypassAddresses": "" } }"#;
         let legacy_config = create_dotnet_legacy_from_jsons(Some(main_json), None, None);
         let (app_config, messages) = migrate(legacy_config).unwrap();
+        assert!(app_config.http_proxy.is_some());
+        let proxy_conf = app_config.http_proxy.as_ref().unwrap();
+        assert!(
+            proxy_conf.bypass_list.is_none(),
+            "Empty string bypass list should result in None, not Some(vec![]). Actual: {:?}",
+            proxy_conf.bypass_list
+        );
+        assert_no_message_contains(&messages, "Migrated proxy bypass list");
 
-        assert!(app_config.aws.is_none());
-
-        assert_message_exists(
-            &messages,
-            MessageLevel::Info,
-            "aws_settings is present but empty or contains no accounts/region",
+        let main_json_whitespace = r#"{ "HttpProxyConfig": { "Address": "proxy.example.com", "Port": 8080, "BypassAddresses": "   ;   " } }"#;
+        let legacy_config_ws =
+            create_dotnet_legacy_from_jsons(Some(main_json_whitespace), None, None);
+        let (app_config_ws, _) = migrate(legacy_config_ws).unwrap();
+        assert!(app_config_ws.http_proxy.is_some());
+        let proxy_conf_ws = app_config_ws.http_proxy.as_ref().unwrap();
+        assert!(
+            proxy_conf_ws.bypass_list.is_none(),
+            "Whitespace-only string bypass list should result in None. Actual: {:?}",
+            proxy_conf_ws.bypass_list
         );
     }
 

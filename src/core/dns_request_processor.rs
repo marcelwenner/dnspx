@@ -318,12 +318,12 @@ impl DnsRequestProcessor {
 
 #[async_trait]
 impl DnsQueryService for DnsRequestProcessor {
-    #[instrument(skip(self, query_bytes), fields(client = %client_addr, proto = ?protocol, qid=field::Empty, qname=field::Empty, qtype=field::Empty))]
+    #[instrument(skip(self, query_bytes), fields(client = %_client_addr, proto = ?_protocol, qid=field::Empty, qname=field::Empty, qtype=field::Empty))]
     async fn process_query(
         &self,
         query_bytes: Vec<u8>,
-        client_addr: SocketAddr,
-        protocol: ProtocolType,
+        _client_addr: SocketAddr,
+        _protocol: ProtocolType,
     ) -> Result<Vec<u8>, DnsProcessingError> {
         self.app_lifecycle_access
             .increment_total_queries_processed();

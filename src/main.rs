@@ -300,8 +300,9 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(
             DohClientAdapter::new(
                 app_conf.default_resolver.timeout,
-                app_conf.http_proxy.as_ref(),
+                app_conf.http_proxy.clone(),
             )
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to create DoH client: {}", e))?,
         )
     };

@@ -405,11 +405,24 @@ impl Default for CacheConfig {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default, Copy)]
+pub enum ProxyAuthenticationType {
+    #[default]
+    None,
+    Basic,
+    Ntlm,
+    WindowsAuth,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HttpProxyConfig {
     pub url: Url,
+    #[serde(default)]
+    pub authentication_type: ProxyAuthenticationType,
     pub username: Option<String>,
     pub password: Option<String>,
+    pub domain: Option<String>,
+    pub bypass_list: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

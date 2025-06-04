@@ -144,3 +144,20 @@ pub enum CliError {
     #[error("Application lifecycle error: {0}")]
     Lifecycle(String),
 }
+
+impl From<reqwest::Error> for ResolveError {
+    fn from(err: reqwest::Error) -> Self {
+        if err.is_timeout() {
+            ResolveError::Network(format!("HTTP request timeout: {}", err))
+        } else if err.is_connect() {
+            ResolveError::Network(format!("HTTP connection error: {}", err))
+        } else {
+            let err_string = err.to_string();
+            if err_string.contains("proxy") || err_string.contains("Proxy") {
+                ResolveError::HttpProxy(format!("HTTP proxy error: {}", err))
+            } else {
+                ResolveError::Network(format!("HTTP client error: {}", err))
+            }
+        }
+    }
+}

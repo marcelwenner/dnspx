@@ -441,6 +441,8 @@ mod tests {
     }
 
     mod rule_priority_and_actions {
+        use crate::config::models::ProxyAuthenticationType;
+
         use super::*;
 
         #[tokio::test]
@@ -595,6 +597,9 @@ mod tests {
                 url: Url::parse("http://proxy.example.com:8080").unwrap(),
                 username: Some("user".to_string()),
                 password: Some("pass".to_string()),
+                authentication_type: ProxyAuthenticationType::None,
+                domain: None,
+                bypass_list: None,
             };
 
             let rule = create_rule_config(
