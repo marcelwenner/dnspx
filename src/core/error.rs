@@ -1,4 +1,4 @@
-use hickory_proto::error::ProtoError;
+use hickory_proto::ProtoError;
 use std::path::PathBuf;
 use thiserror::Error;
 

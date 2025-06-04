@@ -13,7 +13,7 @@ unmaintained = "warn"
 yanked = "warn"
 notice = "warn"
 ignore = [
-    # "RUSTSEC-0000-0000", # Beispiel für ignorierte CVE
+    "RUSTSEC-2024-0436"
 ]
 
 [licenses]

@@ -1902,9 +1902,9 @@ impl TuiApp {
                             .to_lowercase()
                             .contains(&filter_lower)
                         || entry.records.iter().any(|r| {
-                            r.data().is_some_and(|rd| {
-                                format!("{:?}", rd).to_lowercase().contains(&filter_lower)
-                            })
+                            format!("{:?}", r.data())
+                                .to_lowercase()
+                                .contains(&filter_lower)
                         })
                 })
                 .cloned()

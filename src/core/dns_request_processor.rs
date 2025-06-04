@@ -487,7 +487,6 @@ mod integration_tests {
         }
 
         fn get_dns_cache(&self) -> Arc<DnsCache> {
-            // Für Tests, wo der DNS Cache nicht direkt relevant ist
             Arc::new(DnsCache::new(
                 100,
                 Duration::from_secs(1),

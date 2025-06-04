@@ -8,12 +8,12 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 
-fn format_rdata(rdata: Option<&RData>) -> String {
+fn format_rdata(rdata: &RData) -> String {
     match rdata {
-        Some(RData::A(ip)) => ip.to_string(),
-        Some(RData::AAAA(ip)) => ip.to_string(),
-        Some(RData::CNAME(name)) => name.to_string(),
-        Some(RData::TXT(txt)) => {
+        RData::A(ip) => ip.to_string(),
+        RData::AAAA(ip) => ip.to_string(),
+        RData::CNAME(name) => name.to_string(),
+        RData::TXT(txt) => {
             let data_strings: Vec<String> = txt
                 .iter()
                 .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
@@ -30,11 +30,10 @@ fn format_rdata(rdata: Option<&RData>) -> String {
                 data_strings.join(" ")
             }
         }
-        Some(RData::MX(mx)) => format!("{} {}", mx.preference(), mx.exchange()),
-        Some(RData::SOA(soa)) => soa.mname().to_string(),
+        RData::MX(mx) => format!("{} {}", mx.preference(), mx.exchange()),
+        RData::SOA(soa) => soa.mname().to_string(),
 
-        Some(other) => format!("{:?}", other.record_type()),
-        None => "<No RData>".to_string(),
+        other => format!("{:?}", other.record_type()),
     }
 }
 

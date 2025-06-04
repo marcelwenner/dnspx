@@ -46,11 +46,13 @@ impl DohClientAdapter {
 
             match proxy_auth_type {
                 ProxyAuthenticationType::Basic => {
-                    // Fix 1: Proper error conversion for reqwest::Error -> ResolveError
                     let mut proxy = Proxy::all(proxy_url_str).map_err(|e| {
-                        ResolveError::HttpProxy(format!("Failed to create proxy from URL {}: {}", proxy_url_str, e))
+                        ResolveError::HttpProxy(format!(
+                            "Failed to create proxy from URL {}: {}",
+                            proxy_url_str, e
+                        ))
                     })?;
-                    
+
                     if let (Some(user), Some(pass)) = (&proxy_conf.username, &proxy_conf.password) {
                         proxy = proxy.basic_auth(user, pass);
                         debug!(
@@ -66,9 +68,11 @@ impl DohClientAdapter {
                     client_builder_for_non_sspi = client_builder_for_non_sspi.proxy(proxy);
                 }
                 ProxyAuthenticationType::None => {
-                    // Fix 2: Proper error conversion for reqwest::Error -> ResolveError
                     let proxy = Proxy::all(proxy_url_str).map_err(|e| {
-                        ResolveError::HttpProxy(format!("Failed to create proxy from URL {}: {}", proxy_url_str, e))
+                        ResolveError::HttpProxy(format!(
+                            "Failed to create proxy from URL {}: {}",
+                            proxy_url_str, e
+                        ))
                     })?;
                     client_builder_for_non_sspi = client_builder_for_non_sspi.proxy(proxy);
                     debug!("Configured proxy without specific auth: {}", proxy_url_str);
@@ -102,11 +106,14 @@ impl DohClientAdapter {
                                 );
                                 warn!("{}", msg);
 
-                                // Fix 3: Proper error conversion here too
                                 let proxy = Proxy::all(proxy_url_str).map_err(|e| {
-                                    ResolveError::HttpProxy(format!("Failed to create fallback proxy from URL {}: {}", proxy_url_str, e))
+                                    ResolveError::HttpProxy(format!(
+                                        "Failed to create fallback proxy from URL {}: {}",
+                                        proxy_url_str, e
+                                    ))
                                 })?;
-                                client_builder_for_non_sspi = client_builder_for_non_sspi.proxy(proxy);
+                                client_builder_for_non_sspi =
+                                    client_builder_for_non_sspi.proxy(proxy);
 
                                 info!(
                                     "Falling back to proxy without NTLM auth for {} due to missing credentials.",
@@ -315,7 +322,6 @@ impl DohClientAdapter {
                                 ProxyAuthenticationType::WindowsAuth
                                     | ProxyAuthenticationType::Ntlm
                             ) {
-                                // SSPI Handling - add auth headers to request
                                 let auth_header_result = if attempt == 1 {
                                     sspi_mgr.get_initial_token().await
                                 } else if let Some(challenge) = last_proxy_challenge.as_deref() {
@@ -375,7 +381,6 @@ impl DohClientAdapter {
                         }
                     }
 
-                    // Fix 4: For non-SSPI proxies (Basic/None), create a custom client instead of setting proxy on RequestBuilder
                     #[cfg(windows)]
                     let is_sspi_proxy = matches!(
                         proxy_conf.authentication_type,
@@ -390,16 +395,19 @@ impl DohClientAdapter {
                 }
             }
 
-            // Create the appropriate client and request
             let (client_to_use, request) = if use_custom_client_for_non_sspi_proxy {
-                // Create a custom client with proxy settings for Basic/None auth
                 if let Some(proxy_conf) = &self.proxy_config {
                     let mut proxy_obj = Proxy::all(proxy_conf.url.as_str()).map_err(|e| {
-                        ResolveError::HttpProxy(format!("Failed to create proxy for request: {}", e))
+                        ResolveError::HttpProxy(format!(
+                            "Failed to create proxy for request: {}",
+                            e
+                        ))
                     })?;
-                    
+
                     if proxy_conf.authentication_type == ProxyAuthenticationType::Basic {
-                        if let (Some(user), Some(pass)) = (&proxy_conf.username, &proxy_conf.password) {
+                        if let (Some(user), Some(pass)) =
+                            (&proxy_conf.username, &proxy_conf.password)
+                        {
                             proxy_obj = proxy_obj.basic_auth(user, pass);
                         }
                     }
@@ -409,7 +417,10 @@ impl DohClientAdapter {
                         .proxy(proxy_obj)
                         .build()
                         .map_err(|e| {
-                            ResolveError::HttpProxy(format!("Failed to build temporary proxy client: {}", e))
+                            ResolveError::HttpProxy(format!(
+                                "Failed to build temporary proxy client: {}",
+                                e
+                            ))
                         })?;
 
                     let request = request_builder.build().map_err(|e| {
@@ -418,14 +429,12 @@ impl DohClientAdapter {
 
                     (temp_client, request)
                 } else {
-                    // Fallback - should not happen
                     let request = request_builder.build().map_err(|e| {
                         ResolveError::HttpProxy(format!("Failed to build DoH request: {}", e))
                     })?;
                     (self.http_client.clone(), request)
                 }
             } else {
-                // Use the default client (for direct connections or SSPI proxies)
                 let request = request_builder.build().map_err(|e| {
                     ResolveError::HttpProxy(format!("Failed to build DoH request: {}", e))
                 })?;
@@ -586,7 +595,6 @@ impl DohClientAdapter {
     }
 }
 
-// Rest of the implementation stays the same...
 #[async_trait::async_trait]
 impl UpstreamResolver for DohClientAdapter {
     async fn resolve_dns(
@@ -935,8 +943,6 @@ mod tests {
     }
 }
 
-// Füge diese Tests zu deinen bestehenden Test-Modulen hinzu:
-
 #[cfg(test)]
 mod integration_tests {
     use hickory_proto::rr::RecordType;
@@ -963,7 +969,6 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_doh_client_proxy_error_recovery() {
-        // Test: Proxy authentication failure -> retry -> success
         let proxy_config = HttpProxyConfig {
             url: Url::parse("http://failing-proxy:8080").unwrap(),
             authentication_type: ProxyAuthenticationType::Basic,
@@ -977,19 +982,20 @@ mod integration_tests {
             .await
             .unwrap();
 
-        // Sollte graceful mit Network error fehlschlagen
         let question = DnsQuestion {
             name: "test.com".to_string(),
             record_type: RecordType::A,
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        let result = client.resolve_doh(
-            &question, 
-            &[Url::parse("https://dns.google/dns-query").unwrap()],
-            Duration::from_secs(5),
-            None
-        ).await;
+        let result = client
+            .resolve_doh(
+                &question,
+                &[Url::parse("https://dns.google/dns-query").unwrap()],
+                Duration::from_secs(5),
+                None,
+            )
+            .await;
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ResolveError::Network(_)));
@@ -1000,7 +1006,7 @@ mod integration_tests {
         let client = Arc::new(
             DohClientAdapter::new(Duration::from_secs(10), None)
                 .await
-                .unwrap()
+                .unwrap(),
         );
 
         let mut handles = vec![];
@@ -1009,7 +1015,7 @@ mod integration_tests {
         for i in 0..5 {
             let client_clone = Arc::clone(&client);
             let success_count_clone = Arc::clone(&success_count);
-            
+
             handles.push(tokio::spawn(async move {
                 let question = DnsQuestion {
                     name: format!("test{}.example.com", i),
@@ -1017,20 +1023,19 @@ mod integration_tests {
                     class: hickory_proto::rr::DNSClass::IN,
                 };
 
-                // Note: Diese werden fehlschlagen da test domains nicht existieren
-                // Aber der Client sollte nicht crashen
-                let _result = client_clone.resolve_doh(
-                    &question,
-                    &[Url::parse("https://dns.google/dns-query").unwrap()],
-                    Duration::from_secs(5),
-                    None
-                ).await;
+                let _result = client_clone
+                    .resolve_doh(
+                        &question,
+                        &[Url::parse("https://dns.google/dns-query").unwrap()],
+                        Duration::from_secs(5),
+                        None,
+                    )
+                    .await;
 
                 success_count_clone.fetch_add(1, Ordering::Relaxed);
             }));
         }
 
-        // Alle requests sollten completed sein (auch wenn sie fehlschlagen)
         for handle in handles {
             handle.await.expect("Task should complete");
         }
@@ -1040,11 +1045,9 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_bypass_list_case_insensitive() {
-        let adapter = create_adapter_for_bypass_test_async(
-            Some(vec!["EXAMPLE.COM".to_string()])
-        ).await;
-        
-        // Sollte case-insensitive matchen
+        let adapter =
+            create_adapter_for_bypass_test_async(Some(vec!["EXAMPLE.COM".to_string()])).await;
+
         assert!(adapter.should_bypass_proxy(&Url::parse("https://example.com").unwrap()));
         assert!(adapter.should_bypass_proxy(&Url::parse("https://EXAMPLE.COM").unwrap()));
         assert!(adapter.should_bypass_proxy(&Url::parse("https://Example.Com").unwrap()));
@@ -1052,7 +1055,6 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_malformed_urls_handling() {
-        // Test mit verschiedenen URL edge cases
         let client = DohClientAdapter::new(Duration::from_secs(5), None)
             .await
             .unwrap();
@@ -1063,23 +1065,19 @@ mod integration_tests {
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        // Teste mit invalid URL
         let invalid_urls = vec![
             "not-a-url",
-            "http://", 
+            "http://",
             "https://",
-            "ftp://example.com/dns-query", // Wrong protocol
+            "ftp://example.com/dns-query",
         ];
 
         for url_str in invalid_urls {
             if let Ok(url) = Url::parse(url_str) {
-                let result = client.resolve_doh(
-                    &question,
-                    &[url],
-                    Duration::from_secs(5),
-                    None
-                ).await;
-                // Sollte mit Network error fehlschlagen, nicht panic
+                let result = client
+                    .resolve_doh(&question, &[url], Duration::from_secs(5), None)
+                    .await;
+
                 assert!(result.is_err());
             }
         }
@@ -1097,27 +1095,24 @@ mod integration_tests {
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        // Test mit sehr kurzem timeout
-        let result = client.resolve_doh(
-            &question,
-            &[Url::parse("https://httpbin.org/delay/5").unwrap()], // Delay endpoint
-            Duration::from_millis(100), // Sehr kurz
-            None
-        ).await;
+        let result = client
+            .resolve_doh(
+                &question,
+                &[Url::parse("https://httpbin.org/delay/5").unwrap()],
+                Duration::from_millis(100),
+                None,
+            )
+            .await;
 
-        // Sollte mit Timeout error fehlschlagen
         assert!(result.is_err());
         if let Err(ResolveError::Timeout { .. }) = result {
-            // Expected
         } else {
-            // Oder Network error ist auch ok
             assert!(matches!(result.unwrap_err(), ResolveError::Network(_)));
         }
     }
 
-        #[tokio::test]
+    #[tokio::test]
     async fn test_invalid_proxy_url_handling() {
-        // Test: Was passiert bei ungültiger Proxy URL?
         let invalid_configs = vec![
             "not-a-url",
             "://missing-protocol",
@@ -1136,84 +1131,91 @@ mod integration_tests {
                     bypass_list: None,
                 };
 
-                // Should fail gracefully, not panic
-                let result = DohClientAdapter::new(Duration::from_secs(5), Some(proxy_config)).await;
-                assert!(result.is_err(), "Should reject invalid proxy URL: {}", invalid_url);
+                let result =
+                    DohClientAdapter::new(Duration::from_secs(5), Some(proxy_config)).await;
+                assert!(
+                    result.is_err(),
+                    "Should reject invalid proxy URL: {}",
+                    invalid_url
+                );
             }
         }
     }
 
     #[tokio::test]
     async fn test_empty_upstream_urls() {
-        let client = DohClientAdapter::new(Duration::from_secs(5), None).await.unwrap();
+        let client = DohClientAdapter::new(Duration::from_secs(5), None)
+            .await
+            .unwrap();
         let question = DnsQuestion {
             name: "test.com".to_string(),
             record_type: RecordType::A,
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        let result = client.resolve_doh(&question, &[], Duration::from_secs(5), None).await;
+        let result = client
+            .resolve_doh(&question, &[], Duration::from_secs(5), None)
+            .await;
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
     }
 
     #[tokio::test]
     async fn test_dns_id_mismatch_handling() {
-        // Test: DoH server returns response with wrong DNS ID
-        // This tests the ID validation logic in resolve_doh
-        let client = DohClientAdapter::new(Duration::from_secs(5), None).await.unwrap();
+        let client = DohClientAdapter::new(Duration::from_secs(5), None)
+            .await
+            .unwrap();
         let question = DnsQuestion {
             name: "nonexistent12345.invalid".to_string(),
             record_type: RecordType::A,
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        // This will likely fail with NXDOMAIN, but tests the ID checking logic
-        let result = client.resolve_doh(
-            &question,
-            &[Url::parse("https://dns.google/dns-query").unwrap()],
-            Duration::from_secs(5),
-            None
-        ).await;
+        let result = client
+            .resolve_doh(
+                &question,
+                &[Url::parse("https://dns.google/dns-query").unwrap()],
+                Duration::from_secs(5),
+                None,
+            )
+            .await;
 
-        // Should handle gracefully (either NXDOMAIN or network error)
         assert!(result.is_err());
     }
 
-    // 2. PROXY CONFIGURATION EDGE CASES
     #[tokio::test]
     async fn test_basic_auth_missing_credentials() {
         let proxy_config = HttpProxyConfig {
             url: Url::parse("http://proxy.example.com:8080").unwrap(),
             authentication_type: ProxyAuthenticationType::Basic,
-            username: None, // Missing!
-            password: None, // Missing!
+            username: None,
+            password: None,
             domain: None,
             bypass_list: None,
         };
 
-        // Should create client but warn about missing credentials
         let result = DohClientAdapter::new(Duration::from_secs(5), Some(proxy_config)).await;
-        assert!(result.is_ok(), "Should create client despite missing Basic auth credentials");
+        assert!(
+            result.is_ok(),
+            "Should create client despite missing Basic auth credentials"
+        );
     }
 
     #[tokio::test]
     async fn test_bypass_list_edge_cases() {
-        // Test edge cases in bypass list parsing
         let edge_cases = vec![
-            vec!["".to_string()], // Empty string
-            vec!["*".to_string()], // Just asterisk
-            vec!["**".to_string()], // Double asterisk
-            vec!["*.".to_string()], // Asterisk with dot
-            vec![".*".to_string()], // Dot with asterisk
-            vec!["<LOCAL>".to_string()], // Wrong case
-            vec!["<local".to_string()], // Missing bracket
-            vec!["local>".to_string()], // Missing bracket
+            vec!["".to_string()],
+            vec!["*".to_string()],
+            vec!["**".to_string()],
+            vec!["*.".to_string()],
+            vec![".*".to_string()],
+            vec!["<LOCAL>".to_string()],
+            vec!["<local".to_string()],
+            vec!["local>".to_string()],
         ];
 
         for bypass_list in edge_cases {
             let adapter = create_adapter_for_bypass_test_async(Some(bypass_list.clone())).await;
-            
-            // Should not panic on any URL
+
             let test_urls = vec![
                 "https://example.com",
                 "https://localhost",
@@ -1223,36 +1225,41 @@ mod integration_tests {
 
             for url_str in test_urls {
                 let url = Url::parse(url_str).unwrap();
-                let _ = adapter.should_bypass_proxy(&url); // Should not panic
+                let _ = adapter.should_bypass_proxy(&url);
             }
         }
     }
 
-    // 3. NETWORK/TIMEOUT EDGE CASES
     #[tokio::test]
     async fn test_zero_timeout() {
-        let client = DohClientAdapter::new(Duration::from_millis(1), None).await.unwrap();
+        let client = DohClientAdapter::new(Duration::from_millis(1), None)
+            .await
+            .unwrap();
         let question = DnsQuestion {
             name: "test.com".to_string(),
             record_type: RecordType::A,
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        let result = client.resolve_doh(
-            &question,
-            &[Url::parse("https://dns.google/dns-query").unwrap()],
-            Duration::from_millis(1), // Sehr kurz
-            None
-        ).await;
+        let result = client
+            .resolve_doh(
+                &question,
+                &[Url::parse("https://dns.google/dns-query").unwrap()],
+                Duration::from_millis(1),
+                None,
+            )
+            .await;
 
-        // Should timeout or fail gracefully
         assert!(result.is_err());
     }
 
-    // 4. CONCURRENT SAFETY
     #[tokio::test]
     async fn test_shared_client_concurrent_different_questions() {
-        let client = Arc::new(DohClientAdapter::new(Duration::from_secs(10), None).await.unwrap());
+        let client = Arc::new(
+            DohClientAdapter::new(Duration::from_secs(10), None)
+                .await
+                .unwrap(),
+        );
         let mut handles = vec![];
 
         for i in 0..5 {
@@ -1264,13 +1271,14 @@ mod integration_tests {
                     class: hickory_proto::rr::DNSClass::IN,
                 };
 
-                let _result = client_clone.resolve_doh(
-                    &question,
-                    &[Url::parse("https://dns.google/dns-query").unwrap()],
-                    Duration::from_secs(5),
-                    None
-                ).await;
-                // Results will likely be errors (NXDOMAIN), but should not crash
+                let _result = client_clone
+                    .resolve_doh(
+                        &question,
+                        &[Url::parse("https://dns.google/dns-query").unwrap()],
+                        Duration::from_secs(5),
+                        None,
+                    )
+                    .await;
             }));
         }
 
@@ -1279,10 +1287,8 @@ mod integration_tests {
         }
     }
 
-    // 5. CONFIGURATION VALIDATION
     #[tokio::test]
     async fn test_proxy_auth_type_consistency() {
-        // Test: NTLM auth type but no username/password on non-Windows
         #[cfg(not(windows))]
         {
             let proxy_config = HttpProxyConfig {
@@ -1294,9 +1300,11 @@ mod integration_tests {
                 bypass_list: None,
             };
 
-            // Should create client but log warning about unsupported auth type
             let result = DohClientAdapter::new(Duration::from_secs(5), Some(proxy_config)).await;
-            assert!(result.is_ok(), "Should create client on non-Windows despite NTLM config");
+            assert!(
+                result.is_ok(),
+                "Should create client on non-Windows despite NTLM config"
+            );
         }
     }
 }
@@ -1308,14 +1316,15 @@ mod sspi_integration_tests {
 
     #[tokio::test]
     async fn test_sspi_state_transitions() {
-        let manager = SspiAuthManager::new_current_user("test.example.com")
-            .expect("Should create manager");
+        let manager =
+            SspiAuthManager::new_current_user("test.example.com").expect("Should create manager");
 
-        // Initial state
-        assert!(matches!(*manager.auth_state.read().await, SspiAuthState::Initial));
+        assert!(matches!(
+            *manager.auth_state.read().await,
+            SspiAuthState::Initial
+        ));
         assert!(!manager.is_authenticated().await);
 
-        // Simulate state transitions
         {
             let mut state = manager.auth_state.write().await;
             *state = SspiAuthState::NegotiateSent;
@@ -1328,23 +1337,22 @@ mod sspi_integration_tests {
         }
         assert!(manager.is_authenticated().await);
 
-        // Reset should go back to Initial
         manager.reset().await;
-        assert!(matches!(*manager.auth_state.read().await, SspiAuthState::Initial));
+        assert!(matches!(
+            *manager.auth_state.read().await,
+            SspiAuthState::Initial
+        ));
         assert!(!manager.is_authenticated().await);
     }
 
-    
-
     #[tokio::test]
     async fn test_sspi_error_accumulation() {
-        let manager = SspiAuthManager::new_current_user("test.example.com")
-            .expect("Should create manager");
+        let manager =
+            SspiAuthManager::new_current_user("test.example.com").expect("Should create manager");
 
-        // Multiple failures should accumulate
         manager.mark_failed("First failure".to_string()).await;
         manager.mark_failed("Second failure".to_string()).await;
-        
+
         let state = manager.auth_state.read().await;
         if let SspiAuthState::Failed(msg) = &*state {
             assert!(msg.contains("First failure"));
@@ -1359,23 +1367,19 @@ mod sspi_integration_tests {
     async fn test_sspi_concurrent_token_generation() {
         let manager = Arc::new(
             SspiAuthManager::new_current_user("concurrent.example.com")
-                .expect("Should create manager")
+                .expect("Should create manager"),
         );
 
         let mut handles = vec![];
-        
-        // Simulate multiple concurrent token requests
+
         for _ in 0..3 {
             let mgr_clone = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                // Diese werden fehlschlagen da kein echter SSPI context,
-                // aber sollten nicht deadlock verursachen
                 let _result = mgr_clone.get_initial_token().await;
                 let _result2 = mgr_clone.is_authenticated().await;
             }));
         }
 
-        // Alle tasks sollten complete sein
         for handle in handles {
             handle.await.expect("Concurrent SSPI task should complete");
         }
@@ -1383,19 +1387,13 @@ mod sspi_integration_tests {
 
     #[tokio::test]
     async fn test_sspi_memory_cleanup() {
-        // Test dass dropped SSPI manager keine resources leakt
         for _ in 0..10 {
             let _manager = SspiAuthManager::new_current_user("cleanup-test.example.com")
                 .expect("Should create manager");
-            
-            // Manager wird automatisch dropped am Ende des loops
         }
-        
-        // Kein memory leak test möglich ohne tools, aber zumindest no panic
     }
 }
 
-// Performance und Load Tests
 #[cfg(test)]
 mod performance_tests {
     use super::*;
@@ -1421,37 +1419,39 @@ mod performance_tests {
     #[tokio::test]
     async fn test_doh_client_creation_performance() {
         let start = Instant::now();
-        
+
         for _ in 0..10 {
             let _client = DohClientAdapter::new(Duration::from_secs(5), None)
                 .await
                 .unwrap();
         }
-        
+
         let elapsed = start.elapsed();
-        assert!(elapsed < Duration::from_millis(500), 
-                "Client creation should be fast: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "Client creation should be fast: {:?}",
+            elapsed
+        );
     }
 
     #[tokio::test]
     async fn test_bypass_logic_performance() {
-        let bypass_list = (0..100)
-            .map(|i| format!("domain{}.com", i))
-            .collect();
-            
-        let adapter = create_adapter_for_bypass_test_async(Some(bypass_list))
-            .await;
+        let bypass_list = (0..100).map(|i| format!("domain{}.com", i)).collect();
+
+        let adapter = create_adapter_for_bypass_test_async(Some(bypass_list)).await;
 
         let start = Instant::now();
-        
-        // Test 1000 bypass checks
+
         for i in 0..1000 {
             let url = Url::parse(&format!("https://test{}.example.com", i % 50)).unwrap();
             let _ = adapter.should_bypass_proxy(&url);
         }
-        
+
         let elapsed = start.elapsed();
-        assert!(elapsed < Duration::from_millis(100),
-                "Bypass checks should be fast: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "Bypass checks should be fast: {:?}",
+            elapsed
+        );
     }
 }

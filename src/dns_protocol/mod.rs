@@ -1,5 +1,5 @@
 use hickory_proto::{
-    error::ProtoError,
+    ProtoError,
     op::{Message, MessageType, OpCode, Query as HickoryQuery, ResponseCode},
     rr::{DNSClass, Name, RData, Record, RecordType},
     serialize::binary::{BinDecodable, BinEncodable, BinEncoder},

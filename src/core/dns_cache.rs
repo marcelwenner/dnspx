@@ -150,7 +150,7 @@ impl DnsCache {
                 authority_records
                     .iter()
                     .find(|r| r.record_type() == RecordType::SOA)
-                    .and_then(|soa_record| soa_record.data())
+                    .and_then(|soa_record| Some(soa_record.data()))
                     .and_then(|rdata| {
                         if let RData::SOA(ref soa) = *rdata {
                             Some(soa.minimum())
@@ -460,10 +460,7 @@ mod tests {
         let entry = cached_entry.unwrap();
         assert_eq!(entry.response_code, ResponseCode::NoError);
         assert_eq!(entry.records.len(), 1);
-        assert_eq!(
-            entry.records[0].data().unwrap().record_type(),
-            RecordType::A
-        );
+        assert_eq!(entry.records[0].data().record_type(), RecordType::A);
         assert_eq!(entry.ttl, Duration::from_secs(120));
         assert!(entry.is_valid());
     }

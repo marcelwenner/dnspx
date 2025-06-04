@@ -385,7 +385,7 @@ impl AwsVpcScannerTask {
         {
             Ok(response) => {
                 for answer in response.answers() {
-                    if let Some(RData::A(ipv4)) = answer.data() {
+                    if let RData::A(ipv4) = answer.data() {
                         resolved_ips.insert(IpAddr::V4(**ipv4));
                     }
                 }
@@ -403,7 +403,7 @@ impl AwsVpcScannerTask {
         {
             Ok(response) => {
                 for answer in response.answers() {
-                    if let Some(RData::AAAA(ipv6)) = answer.data() {
+                    if let RData::AAAA(ipv6) = answer.data() {
                         resolved_ips.insert(IpAddr::V6(**ipv6));
                     }
                 }
@@ -556,12 +556,10 @@ impl AwsVpcScannerTask {
             let mut aaaa_records = Vec::new();
 
             for rec in records_list {
-                if let Some(rdata_val) = rec.data() {
-                    match rdata_val.record_type() {
-                        RecordType::A => a_records.push(rec),
-                        RecordType::AAAA => aaaa_records.push(rec),
-                        _ => {}
-                    }
+                match rec.data().record_type() {
+                    RecordType::A => a_records.push(rec),
+                    RecordType::AAAA => aaaa_records.push(rec),
+                    _ => {}
                 }
             }
 

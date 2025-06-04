@@ -535,8 +535,8 @@ mod tests {
         for record in answers {
             assert_eq!(record.ttl(), expected_ttl, "TTL mismatch");
             match record.data() {
-                Some(RData::A(ip)) => found_ips.push(IpAddr::V4(**ip)),
-                Some(RData::AAAA(ip)) => found_ips.push(IpAddr::V6(**ip)),
+                RData::A(ip) => found_ips.push(IpAddr::V4(**ip)),
+                RData::AAAA(ip) => found_ips.push(IpAddr::V6(**ip)),
                 _ => panic!("Unexpected record type in answer: {:?}", record.data()),
             }
         }
@@ -668,7 +668,7 @@ mod tests {
             assert_eq!(response.answers().count(), 1);
             let record = response.answers().next().unwrap();
             assert_eq!(record.ttl(), 5);
-            if let Some(RData::A(ip)) = record.data() {
+            if let RData::A(ip) = record.data() {
                 found_ips_over_time.insert(IpAddr::V4(**ip));
             } else {
                 panic!("Expected A record");
@@ -745,7 +745,7 @@ mod tests {
         let mut ptr_targets = Vec::new();
         for record in answers {
             assert_eq!(record.ttl(), 90);
-            if let Some(RData::PTR(ptr_data)) = record.data() {
+            if let RData::PTR(ptr_data) = record.data() {
                 ptr_targets.push(ptr_data.0.to_utf8().to_lowercase());
             }
         }
@@ -781,7 +781,7 @@ mod tests {
         let answers: Vec<&Record> = response.answers().collect();
         assert_eq!(answers.len(), 1, "Expected one PTR record");
         assert_eq!(answers[0].ttl(), 180);
-        if let Some(RData::PTR(ptr_data)) = answers[0].data() {
+        if let RData::PTR(ptr_data) = answers[0].data() {
             assert_eq!(ptr_data.0.to_utf8().to_lowercase(), "ipv6.example.com.");
         } else {
             panic!("Expected PTR RData");
