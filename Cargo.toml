@@ -54,7 +54,7 @@ moka = { version = "0.12", features = ["future"], default-features = false }
 notify = "6.1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 url = { version = "2.5", features = ["serde"] }
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 
 # AWS Integration
 aws-config = { version = "1.5", features = ["rustls"], default-features = false }
