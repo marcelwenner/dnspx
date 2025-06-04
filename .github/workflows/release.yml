@@ -1,0 +1,273 @@
+# .github/workflows/release.yml
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.9.0)'
+        required: true
+        default: 'v0.9.0'
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
+  
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64
+            archive: tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            name: linux-arm64
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x64
+            archive: zip
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-intel
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-arm64
+            archive: tar.gz
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+    
+    - name: Install cross-compilation tools
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+        echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+    
+    - name: Build release binary
+      run: cargo build --release --target ${{ matrix.target }}
+    
+    - name: Create release package
+      shell: bash
+      run: |
+        # Extract version from Cargo.toml or use manual input
+        if [[ "${{ github.event.inputs.version }}" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        
+        # Remove 'v' prefix if present for directory naming
+        VERSION_NUM=${VERSION#v}
+        
+        echo "Building package for version: $VERSION"
+        
+        # Create package directory
+        PKG_NAME="dnspx-${VERSION}-${{ matrix.name }}"
+        mkdir -p "package/${PKG_NAME}"
+        
+        # Copy binary
+        if [[ "${{ matrix.name }}" == "windows-x64" ]]; then
+          cp "target/${{ matrix.target }}/release/dnspx.exe" "package/${PKG_NAME}/"
+        else
+          cp "target/${{ matrix.target }}/release/dnspx" "package/${PKG_NAME}/"
+        fi
+        
+        # Copy documentation
+        for doc in README.md LICENSE CHANGELOG.md; do
+          if [[ -f "$doc" ]]; then
+            cp "$doc" "package/${PKG_NAME}/"
+          fi
+        done
+        
+        # Create platform-specific archive
+        cd package
+        if [[ "${{ matrix.archive }}" == "zip" ]]; then
+          7z a "${PKG_NAME}.zip" "${PKG_NAME}/"
+          ARCHIVE="${PKG_NAME}.zip"
+        else
+          tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}/"
+          ARCHIVE="${PKG_NAME}.tar.gz"
+        fi
+        
+        # Clean up directory
+        rm -rf "${PKG_NAME}/"
+        
+        # Show package info
+        ls -lah "${ARCHIVE}"
+        echo "ARCHIVE_NAME=${ARCHIVE}" >> $GITHUB_ENV
+        echo "ARCHIVE_PATH=package/${ARCHIVE}" >> $GITHUB_ENV
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARCHIVE_NAME }}
+        path: ${{ env.ARCHIVE_PATH }}
+        retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: always() && (needs.build.result == 'success')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Prepare release assets
+      run: |
+        # Extract version
+        if [[ "${{ github.event.inputs.version }}" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        
+        echo "Preparing release for version: $VERSION"
+        
+        # Create release directory
+        mkdir -p release
+        
+        # Collect all archives
+        find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          echo "Found archive: $file"
+          cp "$file" release/
+        done
+        
+        # Generate checksums
+        cd release
+        if command -v sha256sum &> /dev/null; then
+          sha256sum *.tar.gz *.zip > SHA256SUMS.txt 2>/dev/null || true
+        else
+          shasum -a 256 *.tar.gz *.zip > SHA256SUMS.txt 2>/dev/null || true
+        fi
+        
+        # Create all-platforms bundle
+        zip -r "dnspx-${VERSION}-all-platforms.zip" *.tar.gz *.zip SHA256SUMS.txt
+        
+        # Show what we're releasing
+        echo "=== Release Assets ==="
+        ls -lah
+        echo ""
+        echo "=== Checksums ==="
+        cat SHA256SUMS.txt || echo "No checksums generated"
+    
+    - name: Generate release notes example
+      id: release_notes
+      run: |
+        # Extract version
+        if [[ "${{ github.event.inputs.version }}" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        
+        cat > release_notes.md << EOF
+        # DNSPX ${VERSION}
+        
+        Cross-platform DNS toolkit with AWS integration and Terminal UI.
+        
+        ## 📦 Downloads
+        
+        Choose the right package for your platform:
+        
+        ### Linux
+        - **x64**: \`dnspx-${VERSION}-linux-x64.tar.gz\`
+        - **ARM64**: \`dnspx-${VERSION}-linux-arm64.tar.gz\` (AWS Graviton, Raspberry Pi 4+)
+        
+        ### Windows
+        - **x64**: \`dnspx-${VERSION}-windows-x64.zip\`
+        
+        ### macOS
+        - **Intel**: \`dnspx-${VERSION}-macos-intel.tar.gz\`
+        - **Apple Silicon**: \`dnspx-${VERSION}-macos-arm64.tar.gz\` (M1/M2/M3)
+        
+        ### All Platforms
+        - **Convenience Bundle**: \`dnspx-${VERSION}-all-platforms.zip\`
+        
+        ## 🔐 Security
+        
+        Verify downloads using \`SHA256SUMS.txt\`:
+        \`\`\`bash
+        sha256sum -c SHA256SUMS.txt
+        \`\`\`
+        
+        ## 🚀 Quick Install
+        
+        ### Linux/macOS
+        \`\`\`bash
+        # Download and extract (replace URL with actual release)
+        curl -L -o dnspx.tar.gz [DOWNLOAD_URL]
+        tar -xzf dnspx.tar.gz
+        sudo mv dnspx-${VERSION}-*/dnspx /usr/local/bin/
+        
+        # Verify
+        dnspx --version
+        \`\`\`
+        
+        ### Windows
+        1. Download \`.zip\` file
+        2. Extract to desired location
+        3. Add to PATH or run from folder
+        
+        ## ✨ What's New
+        
+        - Cross-platform DNS toolkit
+        - AWS integration for cloud DNS management
+        - Terminal UI for interactive DNS exploration
+        - High-performance DNS resolution
+        - Built with Rust for speed and reliability
+        
+        ---
+        
+        **Full Changelog**: https://github.com/yourusername/dnspx/compare/v0.8.0...${VERSION}
+        EOF
+        
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        cat release_notes.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.event.inputs.version || github.ref_name }}
+        name: DNSPX ${{ github.event.inputs.version || github.ref_name }}
+        body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+        files: |
+          release/*.tar.gz
+          release/*.zip
+          release/SHA256SUMS.txt
+        draft: false
+        prerelease: ${{ github.event.inputs.prerelease || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

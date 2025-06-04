@@ -4,8 +4,28 @@ version = "0.9.0"
 edition = "2024"
 license = "Apache-2.0"
 
+# BINARY SIZE OPTIMIZATIONS
+[profile.release]
+opt-level = "z"          # Optimize for size
+lto = true              # Link Time Optimization (kann 30% sparen)
+codegen-units = 1       # Better optimization
+panic = "abort"         # Smaller panic handler
+strip = "symbols"       # Remove debug symbols
+debug = false           # No debug info
+
+# Alternative small profile for even smaller binaries
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
+lto = "fat"             # More aggressive LTO
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+
 [dependencies]
-tokio = { version = "1.40", features = ["full"] }
+# Async Runtime
+tokio = { version = "1.40", features = ["rt-multi-thread", "net", "time", "fs", "signal", "macros", "sync", "io-util", "io-std"] }
 tokio-util = "0.7"
 
 # Configuration & Serialization
@@ -13,41 +33,50 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 regex = "1.10"
 
-# DNS Protocol (WICHTIG: hickory statt trust-dns!)
-hickory-proto = { version = "0.24", features = ["serde"] }
-hickory-client = { version = "0.24", features = ["dns-over-rustls", "dns-over-https-rustls"] }
+# DNS Protocol
+hickory-proto = { version = "0.24", features = ["serde"], default-features = false }
+hickory-client = { version = "0.24", features = ["dns-over-rustls", "dns-over-https-rustls"], default-features = false }
 
 # Logging & Tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json", "ansi"], default-features = false }
+# Added: "ansi" feature für pretty() method
 
 # CLI & Error Handling
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "std"], default-features = false }
 thiserror = "1.0"
 inquire = "0.7"
 
 # Caching
-moka = { version = "0.12", features = ["future"] }
+moka = { version = "0.12", features = ["future"], default-features = false }
 
 # File Watching & Networking
 notify = "6.1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 url = { version = "2.5", features = ["serde"] }
 ipnetwork = "0.20"
 
 # AWS Integration
-aws-config = "1.5"
-aws-sdk-sts = "1.39"
-aws-sdk-ec2 = "1.59"
+aws-config = { version = "1.5", features = ["rustls"], default-features = false }
+aws-sdk-sts = { version = "1.39", default-features = false }
+aws-sdk-ec2 = { version = "1.59", default-features = false }
 aws-credential-types = "1.2"
-aws-sdk-apigateway = "1.73.0"
-aws-sdk-rds = "1.90.0"
-aws-sdk-elasticache = "1.77.0"
-aws-sdk-docdb = "1.75.0"
+aws-sdk-apigateway = { version = "1.73.0", default-features = false }
+aws-sdk-rds = { version = "1.90.0", default-features = false }
+aws-sdk-elasticache = { version = "1.77.0", default-features = false }
+aws-sdk-docdb = { version = "1.75.0", default-features = false }
+aws-smithy-types = "1.3.1"
+aws-types = "1.3.7"
+aws-sdk-route53 = { version = "1.79.0", default-features = false }
+aws-sdk-route53resolver = { version = "1.76.0", default-features = false }
 
-# Terminal Capabilities (Rust 1.70+ nutzt std::io::IsTerminal)
+# Terminal & UI - OPTIMIERT
 supports-color = "3.0"
 colored = "2.1"
+ratatui = { version = "0.29.0", features = ["crossterm"], default-features = false }
+crossterm = "0.29.0"
+
+# Other dependencies
 humantime-serde = "1.1.1"
 async-trait = "0.1.88"
 chrono = { version = "0.4.41", features = ["serde"] }
@@ -55,23 +84,21 @@ toml = "0.8.22"
 rand = "0.9.1"
 anyhow = "1.0.98"
 dirs = "6.0.0"
-ratatui = { version = "0.29.0", features = ["all-widgets", "crossterm"] }
-aws-smithy-types = "1.3.1"
-aws-types = "1.3.7"
-crossterm = "0.29.0"
 futures = "0.3.31"
-aws-sdk-route53 = "1.79.0"
-aws-sdk-route53resolver = "1.76.0"
 pulldown-cmark = "0.13.0"
-
-
-
 
 [dev-dependencies]
 tokio-test = "0.4"
 assert_matches = "1.5"
-async-std = {version = "1.13.1", features = ["attributes"] }
+async-std = { version = "1.13.1", features = ["attributes"] }
 httpmock = "0.7.0"
 urlencoding = "2.1.3"
 tempfile = "3.20.0"
 mockall = "0.13.1"
+
+# FEATURE FLAGS für conditional compilation
+[features]
+default = ["aws", "tui"]
+aws = []               # AWS integration
+tui = []               # Terminal UI
+minimal = []           # Minimal build without AWS/TUI
