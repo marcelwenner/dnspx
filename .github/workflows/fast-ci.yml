@@ -1,0 +1,30 @@
+name: Fast CI (Feature Branches)
+
+on:
+  push:
+    branches: 
+      - '**'
+      - '!main'
+      - '!develop'
+
+jobs:
+  quick-check:
+    name: Quick Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Format check
+      run: cargo fmt --all -- --check
+
+    - name: Clippy check  
+      run: cargo clippy --all-targets -- -D warnings
+
+    - name: Build check
+      run: cargo build
+
+    - name: Fast tests (Ubuntu only)
+      run: cargo test --lib

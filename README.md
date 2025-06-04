@@ -3,7 +3,7 @@
 ![DNSPX Logo Placeholder](./docs/logo/dnspx-logo.png) <!-- Replace with actual logo -->
 
 DNSPX is a configurable DNS proxy and resolver designed for local development and cloud environments, featuring request caching, rule-based routing, and AWS service discovery.
-
+[![CI](https://github.com/nbyx/dnspx/actions/workflows/ci.yml/badge.svg)](https://github.com/nbyx/dnspx/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.9.0-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 

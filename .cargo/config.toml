@@ -1,0 +1,18 @@
+[build]
+rustflags = [
+    # Enable more warnings
+    "-W", "rust-2018-idioms",
+    "-W", "unused-lifetimes", 
+    "-W", "unreachable-pub",
+    "-W", "trivial-casts",
+    "-W", "trivial-numeric-casts",
+]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    # Windows-specific optimizations
+    "-C", "target-feature=+crt-static",
+]
+
+[registries.crates-io]
+protocol = "sparse"

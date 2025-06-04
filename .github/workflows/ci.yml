@@ -1,0 +1,281 @@
+# .github/workflows/ci.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_run:
+    workflows: ["Fast CI (Feature Branches)"]
+    types: [completed]
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ===== CROSS-PLATFORM BUILD & TEST =====
+  test:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta]
+        exclude:
+          # Beta nur auf Ubuntu um CI Zeit zu sparen
+          - os: windows-latest
+            rust: beta
+          - os: macos-latest
+            rust: beta
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ matrix.rust }}-
+          ${{ runner.os }}-cargo-
+
+    - name: Check code formatting
+      if: matrix.rust == 'stable'
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy lints
+      if: matrix.rust == 'stable'
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Build (Debug)
+      run: cargo build --verbose
+
+    - name: Build (Release)
+      run: cargo build --release --verbose
+
+    - name: Run cross-platform tests
+      run: cargo test --verbose --lib
+      env:
+        RUST_LOG: debug
+
+    - name: Run Windows-specific tests
+      if: runner.os == 'Windows'
+      run: |
+        echo "Running Windows-specific SSPI tests..."
+        cargo test --verbose --lib sspi
+        cargo test --verbose --lib windows
+      env:
+        RUST_LOG: debug
+
+    - name: Run integration tests (non-live)
+      run: cargo test --verbose integration_tests
+      env:
+        RUST_LOG: debug
+
+    - name: Run performance tests
+      run: cargo test --verbose performance_tests
+      env:
+        RUST_LOG: debug
+
+  # ===== SECURITY & QUALITY CHECKS =====
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+    - name: Check for vulnerable dependencies
+      run: cargo audit --deny warnings
+
+  # ===== CODE COVERAGE =====
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
+
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
+
+    - name: Generate coverage report
+      run: |
+        cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: lcov.info
+        fail_ci_if_error: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===== BENCHMARK REGRESSION =====
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Run benchmarks
+      run: cargo test --release performance_tests -- --nocapture
+
+    - name: Store benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'cargo'
+        output-file-path: target/criterion/reports/index.html
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+
+  # ===== DEPENDENCY CHECK =====
+  dependencies:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Check for outdated dependencies
+      run: |
+        cargo install cargo-outdated
+        cargo outdated --exit-code 1
+
+    - name: Check for unused dependencies
+      run: |
+        cargo install cargo-machete
+        cargo machete
+
+  # ===== MULTI-ARCH BUILDS =====
+  build-matrix:
+    name: Build Matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
+          - x86_64-apple-darwin
+          - aarch64-unknown-linux-gnu
+          - aarch64-pc-windows-msvc
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install cross-compilation tools
+      if: matrix.target != 'x86_64-unknown-linux-gnu'
+      run: |
+        cargo install cross
+
+    - name: Build for target
+      run: |
+        if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+          cargo build --release --target ${{ matrix.target }}
+        else
+          cross build --release --target ${{ matrix.target }}
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dnspx-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/release/dnspx*
+          !target/${{ matrix.target }}/release/*.d
+
+  # ===== RELEASE BUILD =====
+  release:
+    name: Release Build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    needs: [test, security, coverage]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build release binary
+      run: cargo build --release
+
+    - name: Run final validation tests
+      run: |
+        # Run subset of critical tests on release build
+        cargo test --release test_bypass_
+        cargo test --release test_doh_client_creation_performance
+
+    - name: Create release archive
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        mkdir -p release
+        cp target/release/dnspx* release/
+        tar czf dnspx-linux-x64.tar.gz -C release .
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dnspx-*.tar.gz
+        draft: true
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===== NOTIFICATIONS =====
+  notify:
+    name: Notifications
+    if: always()
+    needs: [test, security, coverage, build-matrix]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Notify on success
+      if: needs.test.result == 'success' && needs.security.result == 'success'
+      run: |
+        echo "✅ All tests passed on all platforms!"
+        echo "🔒 Security audit passed"
+        echo "📊 Coverage report generated"
+
+    - name: Notify on failure
+      if: needs.test.result == 'failure' || needs.security.result == 'failure'
+      run: |
+        echo "❌ CI Pipeline failed!"
+        echo "Test result: ${{ needs.test.result }}"
+        echo "Security result: ${{ needs.security.result }}"
+        exit 1
+
+# ===== ADDITIONAL WORKFLOW FILES =====
