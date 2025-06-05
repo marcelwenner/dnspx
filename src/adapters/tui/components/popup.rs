@@ -6,49 +6,56 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-pub fn draw_popup(
-    frame: &mut Frame,
-    title: &str,
-    content_lines_ratatui: &[Line<'static>],
-    screen_area: Rect,
-    percent_x: u16,
-    percent_y: u16,
-    scroll_offset: u16,
+pub(crate) struct PopupConfig<'a> {
+    pub title: &'a str,
+    pub content_lines: &'a [Line<'static>],
+    pub screen_area: Rect,
+    pub percent_x: u16,
+    pub percent_y: u16,
+    pub scroll_offset: u16,
+}
+
+pub(crate) fn draw_popup(
+    frame: &mut Frame<'_>,
+    config: PopupConfig<'_>,
     content_area_height: &mut u16,
 ) {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage((100 - config.percent_y) / 2),
+            Constraint::Percentage(config.percent_y),
+            Constraint::Percentage((100 - config.percent_y) / 2),
         ])
-        .split(screen_area);
+        .split(config.screen_area);
 
     let area = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage((100 - config.percent_x) / 2),
+            Constraint::Percentage(config.percent_x),
+            Constraint::Percentage((100 - config.percent_x) / 2),
         ])
         .split(popup_layout[1])[1];
 
     let popup_block = Block::default()
-        .title(title.bold())
+        .title(config.title.bold())
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
 
     let inner_content_rect = popup_block.inner(area);
     *content_area_height = inner_content_rect.height;
 
-    let total_text_lines = content_lines_ratatui.len();
+    let total_text_lines = config.content_lines.len();
     let visible_viewport_height = *content_area_height as usize;
 
-    let clamped_scroll_offset =
-        safe_scroll_clamp(scroll_offset, total_text_lines, visible_viewport_height);
+    let clamped_scroll_offset = safe_scroll_clamp(
+        config.scroll_offset,
+        total_text_lines,
+        visible_viewport_height,
+    );
 
-    let text_object = Text::from(content_lines_ratatui.to_vec());
+    let text_object = Text::from(config.content_lines.to_vec());
     let paragraph = Paragraph::new(text_object.clone())
         .block(popup_block)
         .style(Style::default().bg(Color::DarkGray))
@@ -102,7 +109,11 @@ pub fn draw_popup(
     }
 }
 
-pub fn safe_scroll_clamp(scroll_offset: u16, total_lines: usize, visible_height: usize) -> u16 {
+pub(crate) fn safe_scroll_clamp(
+    scroll_offset: u16,
+    total_lines: usize,
+    visible_height: usize,
+) -> u16 {
     if total_lines <= visible_height {
         return 0;
     }

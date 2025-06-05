@@ -1,4 +1,3 @@
-use crate::adapters::aws::profile_utils::read_aws_profiles_from_files;
 use crate::adapters::aws::types::{AwsCredentialsCache, CachedAwsCredentials, CredentialCacheKey};
 use crate::config::models::{AppConfig, AwsAccountConfig, AwsRoleConfig};
 use crate::core::error::AwsAuthError;
@@ -14,14 +13,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
-pub struct AwsSdkConfigProvider {
+pub(crate) struct AwsSdkConfigProvider {
     app_config: Arc<RwLock<AppConfig>>,
     user_interaction: Arc<dyn UserInteractionPort>,
     credentials_cache: AwsCredentialsCache,
 }
 
 impl AwsSdkConfigProvider {
-    pub fn new(
+    pub(crate) fn new(
         app_config: Arc<RwLock<AppConfig>>,
         user_interaction: Arc<dyn UserInteractionPort>,
         credentials_cache: AwsCredentialsCache,
@@ -34,7 +33,7 @@ impl AwsSdkConfigProvider {
     }
 
     fn generate_profile_cache_key(profile_name: &str) -> CredentialCacheKey {
-        format!("aws_profile_{}", profile_name)
+        format!("aws_profile_{profile_name}")
     }
 
     fn generate_role_cache_key(role_config: &AwsRoleConfig) -> CredentialCacheKey {
@@ -112,6 +111,7 @@ impl AwsSdkConfigProvider {
             current_credentials.clone(),
         );
 
+        #[allow(unused_mut)]
         let mut config_builder = aws_sdk_sts::Config::builder()
             .credentials_provider(provider)
             .region(StsRegion::new(default_region))
@@ -126,48 +126,6 @@ impl AwsSdkConfigProvider {
 
         let sts_config = config_builder.build();
         aws_sdk_sts::Client::from_conf(sts_config)
-    }
-
-    pub async fn get_available_profiles(&self) -> Vec<String> {
-        match read_aws_profiles_from_files() {
-            Ok(profiles) => {
-                debug!("Found {} AWS CLI profiles", profiles.len());
-                profiles
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to read AWS CLI profiles: {}. Using 'default' only.",
-                    e
-                );
-                vec!["default".to_string()]
-            }
-        }
-    }
-
-    pub async fn validate_profile(&self, profile_name: &str) -> Result<String, AwsAuthError> {
-        info!("Validating AWS CLI profile: {}", profile_name);
-
-        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
-            .profile_name(profile_name)
-            .load()
-            .await;
-
-        let provider =
-            sdk_config
-                .credentials_provider()
-                .ok_or_else(|| AwsAuthError::CredentialRetrieval {
-                    account_label: format!("profile-{}", profile_name),
-                    source: "No credentials provider found for profile".into(),
-                })?;
-
-        let credentials = provider.provide_credentials().await.map_err(|e| {
-            AwsAuthError::CredentialRetrieval {
-                account_label: format!("profile-{}", profile_name),
-                source: Box::new(e),
-            }
-        })?;
-
-        self.validate_credentials_impl(&credentials).await
     }
 
     async fn validate_credentials_impl(
@@ -196,7 +154,7 @@ impl AwsSdkConfigProvider {
         }
     }
 
-    pub async fn get_profile_info(
+    pub(crate) async fn get_profile_info(
         &self,
         profile_name: &str,
     ) -> Result<(Option<String>, Option<String>), AwsAuthError> {
@@ -226,13 +184,13 @@ impl AwsSdkConfigProvider {
             sdk_config
                 .credentials_provider()
                 .ok_or_else(|| AwsAuthError::CredentialRetrieval {
-                    account_label: format!("profile-{}", profile_name),
+                    account_label: format!("profile-{profile_name}"),
                     source: "No credentials provider found for profile".into(),
                 })?;
 
         let credentials = provider.provide_credentials().await.map_err(|e| {
             AwsAuthError::CredentialRetrieval {
-                account_label: format!("profile-{}", profile_name),
+                account_label: format!("profile-{profile_name}"),
                 source: Box::new(e),
             }
         })?;
@@ -272,8 +230,7 @@ impl AwsSdkConfigProvider {
                         return Err(AwsAuthError::CredentialRetrieval {
                             account_label: account_label.to_string(),
                             source: format!(
-                                "Account ID mismatch: expected '{}', but credentials belong to account '{}'",
-                                expected_account_id, actual_account_id
+                                "Account ID mismatch: expected '{expected_account_id}', but credentials belong to account '{actual_account_id}'"
                             ).into(),
                         });
                     }
@@ -309,11 +266,8 @@ impl AwsSdkConfigProvider {
                 .credentials_provider()
                 .ok_or_else(|| AwsAuthError::CredentialRetrieval {
                     account_label: account_config.label.clone(),
-                    source: format!(
-                        "No credentials provider found for profile '{}'",
-                        profile_name
-                    )
-                    .into(),
+                    source: format!("No credentials provider found for profile '{profile_name}'")
+                        .into(),
                 })?;
 
         let credentials = provider.provide_credentials().await.map_err(|e| {
@@ -351,11 +305,8 @@ impl AwsSdkConfigProvider {
                 .credentials_provider()
                 .ok_or_else(|| AwsAuthError::CredentialRetrieval {
                     account_label: account_config.label.clone(),
-                    source: format!(
-                        "No credentials provider found for profile '{}'",
-                        profile_name
-                    )
-                    .into(),
+                    source: format!("No credentials provider found for profile '{profile_name}'")
+                        .into(),
                 })?;
 
         let base_credentials = provider.provide_credentials().await.map_err(|e| {
@@ -370,7 +321,7 @@ impl AwsSdkConfigProvider {
         let caller_identity = sts_client.get_caller_identity().send().await.map_err(|e| {
             AwsAuthError::CredentialRetrieval {
                 account_label: account_config.label.clone(),
-                source: format!("Failed to get caller identity: {}", e).into(),
+                source: format!("Failed to get caller identity: {e}").into(),
             }
         })?;
 
@@ -379,12 +330,12 @@ impl AwsSdkConfigProvider {
             .derive_mfa_serial_from_user_arn(user_arn)
             .map_err(|e| AwsAuthError::CredentialRetrieval {
                 account_label: account_config.label.clone(),
-                source: format!("Could not derive MFA serial: {}", e).into(),
+                source: format!("Could not derive MFA serial: {e}").into(),
             })?;
 
         let token_code = mfa_provider
             .prompt_for_mfa_token(
-                &format!("Profile: {} (MFA Device: {})", profile_name, mfa_serial),
+                &format!("Profile: {profile_name} (MFA Device: {mfa_serial})"),
                 1,
             )
             .await?;
@@ -445,7 +396,7 @@ impl AwsSdkConfigProvider {
         let caller_identity = sts_client.get_caller_identity().send().await.map_err(|e| {
             AwsAuthError::AssumeRole {
                 role_arn: role_config.role_arn.clone(),
-                source: format!("Failed to get caller identity for MFA serial: {}", e).into(),
+                source: format!("Failed to get caller identity for MFA serial: {e}").into(),
             }
         })?;
 
@@ -501,7 +452,7 @@ impl AwsSdkConfigProvider {
         } else {
             Err(AwsAuthError::AssumeRole {
                 role_arn: "unknown".to_string(),
-                source: format!("Cannot derive MFA serial from ARN: {}", user_arn).into(),
+                source: format!("Cannot derive MFA serial from ARN: {user_arn}").into(),
             })
         }
     }
@@ -590,7 +541,7 @@ impl AwsConfigProvider for AwsSdkConfigProvider {
                 return Ok(credentials);
             }
             Err(e) => {
-                let error_msg = format!("{}", e);
+                let error_msg = format!("{e}");
                 if error_msg.to_lowercase().contains("mfa")
                     || error_msg.to_lowercase().contains("multifactor")
                     || error_msg.to_lowercase().contains("token")
@@ -614,7 +565,7 @@ impl AwsConfigProvider for AwsSdkConfigProvider {
         &self,
         base_credentials: &CoreAwsCredentials,
         role_config: &AwsRoleConfig,
-        account_config: &AwsAccountConfig,
+        _account_config: &AwsAccountConfig,
         mfa_provider: Arc<dyn UserInteractionPort>,
     ) -> Result<CoreAwsCredentials, AwsAuthError> {
         let cache_key = Self::generate_role_cache_key(role_config);

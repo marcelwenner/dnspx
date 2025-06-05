@@ -8,22 +8,22 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
-pub enum ProtocolType {
+pub(crate) enum ProtocolType {
     Udp,
     Tcp,
 }
 
-pub type AwsCredentials = AwsCredentialsExternal;
+pub(crate) type AwsCredentials = AwsCredentialsExternal;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AccountScanError {
+pub(crate) struct AccountScanError {
     pub label_or_arn: String,
     pub region: Option<String>,
     pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AwsScannerStatus {
+pub(crate) struct AwsScannerStatus {
     pub is_scanning: bool,
     pub last_scan_time: Option<DateTime<Utc>>,
     pub discovered_entries_count: usize,
@@ -35,7 +35,7 @@ pub struct AwsScannerStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigStatus {
+pub(crate) struct ConfigStatus {
     pub last_loaded_time: Option<DateTime<Utc>>,
     pub is_valid: bool,
     pub error_message: Option<String>,
@@ -54,7 +54,7 @@ impl Default for ConfigStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CacheStats {
+pub(crate) struct CacheStats {
     pub hits: u64,
     pub misses: u64,
     pub evictions: u64,
@@ -63,7 +63,7 @@ pub struct CacheStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppStatus {
+pub(crate) struct AppStatus {
     pub config_status: ConfigStatus,
     pub aws_scanner_status: Option<AwsScannerStatus>,
     pub uptime_seconds: u64,
@@ -73,7 +73,7 @@ pub struct AppStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
-pub enum MessageLevel {
+pub(crate) enum MessageLevel {
     Info,
     Warning,
     Error,
@@ -82,7 +82,7 @@ pub enum MessageLevel {
 }
 
 #[derive(Debug, Clone)]
-pub enum CliCommand {
+pub(crate) enum CliCommand {
     Status,
     ReloadConfig,
     TriggerAwsScan,
@@ -91,7 +91,7 @@ pub enum CliCommand {
 }
 
 #[derive(Debug, Clone)]
-pub enum CliOutput {
+pub(crate) enum CliOutput {
     Message(String),
     Table(Vec<Vec<String>>),
     Json(serde_json::Value),
@@ -101,7 +101,7 @@ pub enum CliOutput {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Copy, Hash, Default)]
-pub enum AwsAuthMethod {
+pub(crate) enum AwsAuthMethod {
     #[default]
     AwsProfile,
     AccessKeys,
@@ -109,7 +109,7 @@ pub enum AwsAuthMethod {
 }
 
 impl AwsAuthMethod {
-    pub fn next(&self) -> Self {
+    pub(crate) fn next(&self) -> Self {
         match self {
             AwsAuthMethod::AwsProfile => AwsAuthMethod::AccessKeys,
             AwsAuthMethod::AccessKeys => AwsAuthMethod::IamRole,
@@ -117,7 +117,7 @@ impl AwsAuthMethod {
         }
     }
 
-    pub fn prev(&self) -> Self {
+    pub(crate) fn prev(&self) -> Self {
         match self {
             AwsAuthMethod::AwsProfile => AwsAuthMethod::IamRole,
             AwsAuthMethod::AccessKeys => AwsAuthMethod::AwsProfile,

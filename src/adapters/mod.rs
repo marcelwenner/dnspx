@@ -1,7 +1,7 @@
-pub mod aws;
-pub mod cli;
-pub mod config;
-pub mod resolver;
-pub mod server;
-pub mod status;
-pub mod tui;
+pub(crate) mod aws;
+pub(crate) mod cli;
+pub(crate) mod config;
+pub(crate) mod resolver;
+pub(crate) mod server;
+pub(crate) mod status;
+pub(crate) mod tui;

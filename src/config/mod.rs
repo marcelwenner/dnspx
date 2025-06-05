@@ -1,16 +1,16 @@
-pub mod migration;
-pub mod models;
+pub(crate) mod migration;
+pub(crate) mod models;
 
 use crate::core::error::ConfigError;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_CONFIG_FILE_NAME_V2: &str = "dnspx_config.toml";
+pub(crate) const DEFAULT_CONFIG_FILE_NAME_V2: &str = "dnspx_config.toml";
 
-pub const DOTNET_LEGACY_MAIN_CONFIG_FILE_NAME: &str = "config.json";
-pub const DOTNET_LEGACY_RULES_FILE_NAME: &str = "rules.json";
-pub const DOTNET_LEGACY_HOSTS_FILE_NAME: &str = "hosts.json";
+pub(crate) const DOTNET_LEGACY_MAIN_CONFIG_FILE_NAME: &str = "config.json";
+pub(crate) const DOTNET_LEGACY_RULES_FILE_NAME: &str = "rules.json";
+pub(crate) const DOTNET_LEGACY_HOSTS_FILE_NAME: &str = "hosts.json";
 
-pub fn find_config_file() -> Result<PathBuf, ConfigError> {
+pub(crate) fn find_config_file() -> Result<PathBuf, ConfigError> {
     let current_dir_path = Path::new(".").join(DEFAULT_CONFIG_FILE_NAME_V2);
     if current_dir_path.exists() {
         return Ok(current_dir_path);
@@ -28,7 +28,7 @@ pub fn find_config_file() -> Result<PathBuf, ConfigError> {
     Ok(current_dir_path)
 }
 
-pub fn find_legacy_config_paths(
+pub(crate) fn find_legacy_config_paths(
     base_search_dir: &Path,
 ) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>) {
     let main_config = base_search_dir.join(DOTNET_LEGACY_MAIN_CONFIG_FILE_NAME);

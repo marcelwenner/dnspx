@@ -1,7 +1,9 @@
 use crate::adapters::tui::app::InputMode;
 use crate::adapters::tui::app::{AwsSetupField, TuiApp};
 use crate::adapters::tui::components::{
-    add_cache_entry_modal, cache_view_panel, hotkey_panel, log_panel, popup, status_panel,
+    add_cache_entry_modal, cache_view_panel, hotkey_panel, log_panel,
+    popup::{self, PopupConfig},
+    status_panel,
 };
 use crate::core::types::AwsAuthMethod;
 use ratatui::{
@@ -31,7 +33,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
+pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     if app.input_mode == InputMode::AwsProfileSetupForm {
         draw_aws_profile_setup_form(frame, app);
     } else if app.show_cache_viewer {
@@ -92,43 +94,49 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
 
         popup::draw_popup(
             frame,
-            "Help (Press 'h' or 'Esc' to close)",
-            &help_text_lines,
-            frame.area(),
-            70,
-            90,
-            0,
+            PopupConfig {
+                title: "Help (Press 'h' or 'Esc' to close)",
+                content_lines: &help_text_lines,
+                screen_area: frame.area(),
+                percent_x: 70,
+                percent_y: 90,
+                scroll_offset: 0,
+            },
             &mut app.license_popup_content_area_height,
         );
     }
     if app.show_license_popup {
         popup::draw_popup(
             frame,
-            "License Information (Press Ctrl+L or Esc to close)",
-            &app.license_text_lines,
-            frame.area(),
-            70,
-            80,
-            app.license_popup_scroll_offset,
+            PopupConfig {
+                title: "License Information (Press Ctrl+L or Esc to close)",
+                content_lines: &app.license_text_lines,
+                screen_area: frame.area(),
+                percent_x: 70,
+                percent_y: 80,
+                scroll_offset: app.license_popup_scroll_offset,
+            },
             &mut app.license_popup_content_area_height,
         );
     }
     if app.show_releasenotes_popup {
         popup::draw_popup(
             frame,
-            "Release Notes (Press Ctrl+N or Esc to close)",
-            &app.release_notes_lines,
-            frame.area(),
-            70,
-            70,
-            app.releasenotes_popup_scroll_offset,
+            PopupConfig {
+                title: "Release Notes (Press Ctrl+N or Esc to close)",
+                content_lines: &app.release_notes_lines,
+                screen_area: frame.area(),
+                percent_x: 70,
+                percent_y: 70,
+                scroll_offset: app.releasenotes_popup_scroll_offset,
+            },
             &mut app.releasenotes_popup_content_area_height,
         );
     }
 }
 
-fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
-    let area = frame.size();
+fn draw_aws_profile_setup_form(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let area = frame.area();
     let form_area = centered_rect(80, 85, area);
     frame.render_widget(Clear, form_area);
 
@@ -208,7 +216,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
         let mut current_chunk_idx = 0;
 
         fn draw_text_input_field(
-            frame: &mut Frame,
+            frame: &mut Frame<'_>,
             chunk: Rect,
             app: &TuiApp,
             field_type: AwsSetupField,
@@ -237,7 +245,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
                     Style::default(),
                 ),
                 Span::styled(
-                    format!("[{}]", display_val),
+                    format!("[{display_val}]"),
                     if focused {
                         Style::default().fg(Color::Cyan)
                     } else {
@@ -257,7 +265,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
         }
 
         fn draw_radio_buttons(
-            frame: &mut Frame,
+            frame: &mut Frame<'_>,
             chunk: Rect,
             app: &TuiApp,
             field_type: AwsSetupField,
@@ -296,7 +304,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
                 };
 
                 spans.push(Span::styled(
-                    format!("{} {}  ", radio_char, display_text),
+                    format!("{radio_char} {display_text}  "),
                     style,
                 ));
             }
@@ -309,7 +317,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
         }
 
         fn draw_profile_dropdown(
-            frame: &mut Frame,
+            frame: &mut Frame<'_>,
             chunk: Rect,
             app: &TuiApp,
             field_type: AwsSetupField,
@@ -333,7 +341,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
                     Style::default(),
                 ),
                 Span::styled(
-                    format!("[{}]", current_profile_name),
+                    format!("[{current_profile_name}]"),
                     if focused {
                         Style::default().fg(Color::Cyan)
                     } else {
@@ -354,7 +362,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
             frame.render_widget(Paragraph::new(text_line), chunk);
 
             if app.aws_profile_dropdown_open && focused && !app.aws_profiles_loading {
-                let list_items: Vec<ListItem> = app
+                let list_items: Vec<ListItem<'_>> = app
                     .aws_available_profiles
                     .iter()
                     .enumerate()
@@ -393,7 +401,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
         }
 
         fn draw_info_field(
-            frame: &mut Frame,
+            frame: &mut Frame<'_>,
             chunk: Rect,
             label: &str,
             value: Option<&String>,
@@ -407,11 +415,8 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
                 value.map_or_else(|| "N/A".to_string(), |s| s.clone())
             };
 
-            let base_style = if is_loading {
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC)
-            } else if value.is_none()
+            let base_style = if is_loading
+                || value.is_none()
                 || value.is_some_and(|s| s.starts_with("N/A") || s.starts_with("Error parsing"))
             {
                 Style::default()
@@ -553,7 +558,7 @@ fn draw_aws_profile_setup_form(frame: &mut Frame, app: &mut TuiApp) {
         };
         let checkbox_paragraph_line = Line::from(vec![
             Span::raw(" ".repeat(field_label_width as usize)),
-            Span::styled(format!("[{}] ", checkbox_char), checkbox_style),
+            Span::styled(format!("[{checkbox_char}] "), checkbox_style),
             Span::styled(checkbox_text_content, checkbox_style),
             Span::styled(
                 if is_checkbox_focused { "█" } else { "" },

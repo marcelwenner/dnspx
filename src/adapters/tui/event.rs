@@ -6,7 +6,7 @@ use tokio::time::interval;
 use tracing::error;
 
 #[derive(Debug, Clone)]
-pub enum AppEvent {
+pub(crate) enum AppEvent {
     Input(KeyEvent),
     Tick,
     Command(CliCommand),
@@ -14,18 +14,18 @@ pub enum AppEvent {
 
 const TICK_RATE: Duration = Duration::from_millis(250);
 
-pub struct EventManager {
+pub(crate) struct EventManager {
     event_tx: mpsc::Sender<AppEvent>,
     event_rx: mpsc::Receiver<AppEvent>,
 }
 
 impl EventManager {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let (event_tx, event_rx) = mpsc::channel(128);
         Self { event_tx, event_rx }
     }
 
-    pub fn start_event_listeners(&self) {
+    pub(crate) fn start_event_listeners(&self) {
         let tx_input = self.event_tx.clone();
         tokio::spawn(async move {
             loop {
@@ -62,16 +62,16 @@ impl EventManager {
         });
     }
 
-    pub async fn next_event(&mut self) -> Option<AppEvent> {
+    pub(crate) async fn next_event(&mut self) -> Option<AppEvent> {
         self.event_rx.recv().await
     }
 
-    pub fn get_event_sender(&self) -> mpsc::Sender<AppEvent> {
+    pub(crate) fn get_event_sender(&self) -> mpsc::Sender<AppEvent> {
         self.event_tx.clone()
     }
 }
 
-pub fn is_quit_event(key_event: &KeyEvent) -> bool {
+pub(crate) fn is_quit_event(key_event: &KeyEvent) -> bool {
     match key_event.code {
         KeyCode::Char('q') => true,
         KeyCode::Char('x') if key_event.modifiers == KeyModifiers::CONTROL => true,

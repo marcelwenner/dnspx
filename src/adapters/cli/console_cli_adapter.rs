@@ -6,12 +6,12 @@ use colored::*;
 use std::io::Write;
 use std::sync::Arc;
 
-pub struct ConsoleCliAdapter {
+pub(crate) struct ConsoleCliAdapter {
     colors_enabled: bool,
 }
 
 impl ConsoleCliAdapter {
-    pub fn new(colors_enabled: bool) -> Self {
+    pub(crate) fn new(colors_enabled: bool) -> Self {
         Self { colors_enabled }
     }
 
@@ -23,7 +23,10 @@ impl ConsoleCliAdapter {
         }
     }
 
-    pub async fn run_cli_loop(self: Arc<Self>, app_lifecycle: Arc<dyn AppLifecycleManagerPort>) {
+    pub(crate) async fn run_cli_loop(
+        self: Arc<Self>,
+        app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
+    ) {
         let mut line_reader = tokio::io::BufReader::new(tokio::io::stdin());
         let mut line_buf = String::new();
 
@@ -59,10 +62,7 @@ impl ConsoleCliAdapter {
                 "" => continue,
                 _ => {
                     self.display_message(
-                        &format!(
-                            "Unknown command: '{}'. Type 'help' for commands.",
-                            command_str
-                        ),
+                        &format!("Unknown command: '{command_str}'. Type 'help' for commands."),
                         MessageLevel::Warning,
                     );
                     continue;
@@ -95,18 +95,18 @@ impl ConsoleCliAdapter {
             }
             CliOutput::Json(val) => {
                 if let Ok(pretty_json) = serde_json::to_string_pretty(&val) {
-                    println!("{}", pretty_json);
+                    println!("{pretty_json}");
                 } else {
-                    println!("{:?}", val);
+                    println!("{val:?}");
                 }
             }
             CliOutput::Status(status) => self.display_status(&status),
             CliOutput::Config(config_arc) => {
                 let config = config_arc.read().await;
                 if let Ok(pretty_json) = serde_json::to_string_pretty(&*config) {
-                    println!("{}", pretty_json);
+                    println!("{pretty_json}");
                 } else {
-                    println!("{:?}", config);
+                    println!("{config:?}");
                 }
             }
             CliOutput::None => {}
@@ -190,7 +190,7 @@ impl UserInteractionPort for ConsoleCliAdapter {
     }
 
     fn display_message(&self, message: &str, level: MessageLevel) {
-        let level_str = format!("[{:<7}]", format!("{:?}", level).to_uppercase());
+        let level_str = format!("[{:<7}]", format!("{level:?}").to_uppercase());
         match level {
             MessageLevel::Error => {
                 eprintln!("{} {}", self.colorize(&level_str, Color::Red), message)
@@ -226,7 +226,7 @@ impl UserInteractionPort for ConsoleCliAdapter {
             println!("    No active listeners.");
         } else {
             for listener in &status_info.active_listeners {
-                println!("    - {}", listener);
+                println!("    - {listener}");
             }
         }
 
@@ -243,7 +243,7 @@ impl UserInteractionPort for ConsoleCliAdapter {
             }
         );
         if let Some(path) = &status_info.config_status.source_file_path {
-            println!("    Source: {}", path);
+            println!("    Source: {path}");
         }
         if let Some(time) = status_info.config_status.last_loaded_time {
             println!("    Last Loaded: {}", time.format("%Y-%m-%d %H:%M:%S UTC"));
@@ -306,7 +306,7 @@ impl UserInteractionPort for ConsoleCliAdapter {
         eprintln!("{} {}", self.colorize("[ERROR]", Color::Red).bold(), error);
         let mut source = error.source();
         while let Some(src) = source {
-            eprintln!("  Caused by: {}", src);
+            eprintln!("  Caused by: {src}");
             source = src.source();
         }
     }
@@ -360,7 +360,7 @@ impl UserInteractionPort for ConsoleCliAdapter {
         if self.colors_enabled {
             print!("{}", prompt_text.cyan().bold());
         } else {
-            print!("{}", prompt_text);
+            print!("{prompt_text}");
         }
         std::io::stdout().flush().unwrap_or_default();
     }

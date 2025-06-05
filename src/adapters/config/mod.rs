@@ -1,1 +1,1 @@
-pub mod file_store;
+pub(crate) mod file_store;

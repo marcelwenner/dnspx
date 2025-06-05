@@ -3,7 +3,7 @@ use hickory_proto::rr::RecordType;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
@@ -28,18 +28,18 @@ fn centered_rect_for_modal(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-pub fn draw_add_cache_entry_modal(frame: &mut Frame, app: &TuiApp, area: Rect) {
+pub(crate) fn draw_add_cache_entry_modal(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let modal_area = centered_rect_for_modal(70, 40, area);
     frame.render_widget(Clear, modal_area);
 
     let base_title = "Add Synthetic Cache Entry";
     let current_step_str = app.current_add_cache_step.as_ref().map_or_else(
         || "Unknown".to_string(),
-        |s| format!("{:?}", s).replace("Prompt", ""),
+        |s| format!("{s:?}").replace("Prompt", ""),
     );
-    let title = format!("{} - {} (Esc for Back)", base_title, current_step_str);
+    let title = format!("{base_title} - {current_step_str} (Esc for Back)");
 
-    let mut content_lines: Vec<Line> = Vec::new();
+    let mut content_lines: Vec<Line<'_>> = Vec::new();
     let prompt = app.get_add_cache_prompt();
 
     match app.current_add_cache_step {
@@ -73,7 +73,7 @@ pub fn draw_add_cache_entry_modal(frame: &mut Frame, app: &TuiApp, area: Rect) {
                 app.pending_cache_add_data.name
             )));
             if let Some(rt) = app.pending_cache_add_data.record_type {
-                content_lines.push(Line::from(format!("  Type: {:?}", rt)));
+                content_lines.push(Line::from(format!("  Type: {rt:?}")));
                 match rt {
                     RecordType::A => content_lines.push(Line::from(format!(
                         "  Value: {}",
@@ -133,7 +133,7 @@ pub fn draw_add_cache_entry_modal(frame: &mut Frame, app: &TuiApp, area: Rect) {
     frame.render_widget(paragraph, modal_area);
 }
 
-pub fn draw_confirm_delete_cache_modal(frame: &mut Frame, app: &TuiApp, area: Rect) {
+pub(crate) fn draw_confirm_delete_cache_modal(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let modal_area = centered_rect_for_modal(50, 20, area);
     frame.render_widget(Clear, modal_area);
 

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ConfigError {
+pub(crate) enum ConfigError {
     #[error("Failed to read configuration file {path}: {source}")]
     ReadFile {
         path: PathBuf,
@@ -36,7 +36,7 @@ pub enum ConfigError {
 }
 
 #[derive(Error, Debug)]
-pub enum DnsProcessingError {
+pub(crate) enum DnsProcessingError {
     #[error("Failed to parse DNS query: {0}")]
     ParseError(#[from] ProtoError),
     #[error("Failed to serialize DNS response: {0}")]
@@ -60,7 +60,7 @@ pub enum DnsProcessingError {
 }
 
 #[derive(Error, Debug)]
-pub enum ResolveError {
+pub(crate) enum ResolveError {
     #[error("Upstream server error for {server}: {details}")]
     UpstreamServer { server: String, details: String },
     #[error("No upstream servers available or configured")]
@@ -83,7 +83,7 @@ pub enum ResolveError {
 }
 
 #[derive(Error, Debug)]
-pub enum AwsAuthError {
+pub(crate) enum AwsAuthError {
     #[error("Failed to get AWS credentials for account '{account_label}': {source}")]
     CredentialRetrieval {
         account_label: String,
@@ -105,7 +105,7 @@ pub enum AwsAuthError {
 }
 
 #[derive(Error, Debug)]
-pub enum AwsApiError {
+pub(crate) enum AwsApiError {
     #[error("AWS API call to {service} for resource '{resource_id}' failed: {source}")]
     ApiCall {
         service: String,
@@ -124,7 +124,7 @@ pub enum AwsApiError {
 }
 
 #[derive(Error, Debug)]
-pub enum UserInputError {
+pub(crate) enum UserInputError {
     #[error("Failed to read user input: {0}")]
     ReadError(std::io::Error),
     #[error("User input was cancelled or empty")]
@@ -134,7 +134,7 @@ pub enum UserInputError {
 }
 
 #[derive(Error, Debug)]
-pub enum CliError {
+pub(crate) enum CliError {
     #[error("Command execution failed: {0}")]
     Execution(String),
     #[error("Invalid command or arguments: {0}")]
@@ -148,15 +148,15 @@ pub enum CliError {
 impl From<reqwest::Error> for ResolveError {
     fn from(err: reqwest::Error) -> Self {
         if err.is_timeout() {
-            ResolveError::Network(format!("HTTP request timeout: {}", err))
+            ResolveError::Network(format!("HTTP request timeout: {err}"))
         } else if err.is_connect() {
-            ResolveError::Network(format!("HTTP connection error: {}", err))
+            ResolveError::Network(format!("HTTP connection error: {err}"))
         } else {
             let err_string = err.to_string();
             if err_string.contains("proxy") || err_string.contains("Proxy") {
-                ResolveError::HttpProxy(format!("HTTP proxy error: {}", err))
+                ResolveError::HttpProxy(format!("HTTP proxy error: {err}"))
             } else {
-                ResolveError::Network(format!("HTTP client error: {}", err))
+                ResolveError::Network(format!("HTTP client error: {err}"))
             }
         }
     }

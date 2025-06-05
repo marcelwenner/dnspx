@@ -1,4 +1,3 @@
-use crate::app_lifecycle::AppLifecycleManager;
 use crate::core::types::ProtocolType;
 use crate::dns_protocol::{DnsMessage as AppDnsMessage, parse_dns_message, serialize_dns_message};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
@@ -110,7 +109,7 @@ async fn handle_tcp_connection(
     debug!(client = %client_addr, "TCP connection closed.");
 }
 
-pub async fn run_tcp_listener(
+pub(crate) async fn run_tcp_listener(
     app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
     dns_query_service: Arc<dyn DnsQueryService>,
 ) -> Result<(), std::io::Error> {
@@ -123,7 +122,7 @@ pub async fn run_tcp_listener(
     let listener = TcpListener::bind(&listen_address).await?;
     info!("TCP listener started on {}", listen_address);
     app_lifecycle
-        .add_listener_address(format!("TCP:{}", listen_address))
+        .add_listener_address(format!("TCP:{listen_address}"))
         .await;
 
     let cancellation_token = app_lifecycle.get_cancellation_token();
@@ -158,7 +157,7 @@ pub async fn run_tcp_listener(
         }
     }
     app_lifecycle
-        .remove_listener_address(format!("TCP:{}", listen_address))
+        .remove_listener_address(format!("TCP:{listen_address}"))
         .await;
     Ok(())
 }

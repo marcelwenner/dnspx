@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{debug, error, info, warn};
 
-pub struct LocalHostsResolver {
+pub(crate) struct LocalHostsResolver {
     config: Arc<RwLock<AppConfig>>,
     hosts: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>,
     reverse_hosts: Arc<RwLock<HashMap<IpAddr, Vec<String>>>>,
@@ -28,7 +28,7 @@ pub struct LocalHostsResolver {
 }
 
 impl LocalHostsResolver {
-    pub async fn new(config: Arc<RwLock<AppConfig>>) -> Arc<Self> {
+    pub(crate) async fn new(config: Arc<RwLock<AppConfig>>) -> Arc<Self> {
         let (hosts_map, reverse_map) = {
             let config_guard = config.read().await;
             Self::load_hosts_from_config_struct(config_guard.local_hosts.as_ref()).await
@@ -101,7 +101,7 @@ impl LocalHostsResolver {
         (hosts_map, reverse_map)
     }
 
-    pub async fn update_hosts(&self) {
+    pub(crate) async fn update_hosts(&self) {
         info!("LocalHostsResolver: Reloading hosts due to config change or file watch.");
         let (new_hosts, new_reverse_hosts) = {
             let config_guard = self.config.read().await;
@@ -120,7 +120,7 @@ impl LocalHostsResolver {
         info!("LocalHostsResolver: Hosts reloaded successfully.");
     }
 
-    pub async fn resolve(
+    pub(crate) async fn resolve(
         &self,
         question: &DnsQuestion,
         query_message: &DnsMessage,
@@ -220,7 +220,7 @@ impl LocalHostsResolver {
                             let fqdn_hostname = if hostname_str.ends_with('.') {
                                 hostname_str.clone()
                             } else {
-                                format!("{}.", hostname_str)
+                                format!("{hostname_str}.")
                             };
                             match Name::from_str(&fqdn_hostname) {
                                 Ok(target_name) => {
@@ -321,7 +321,7 @@ impl LocalHostsResolver {
         Err(())
     }
 
-    pub async fn start_file_watching(self: Arc<Self>) {
+    pub(crate) async fn start_file_watching(self: Arc<Self>) {
         let config_guard = self.config.read().await;
         let hosts_config_opt = config_guard.local_hosts.clone();
         drop(config_guard);
@@ -353,21 +353,20 @@ impl LocalHostsResolver {
                     match notify::recommended_watcher(
                         move |res: Result<NotifyEvent, NotifyError>| match res {
                             Ok(event) => {
-                                if event.kind.is_modify()
+                                if (event.kind.is_modify()
                                     || event.kind.is_create()
                                     || matches!(
                                         event.kind,
                                         notify::EventKind::Access(AccessKind::Close(
                                             notify::event::AccessMode::Write
                                         ))
-                                    )
+                                    ))
+                                    && tx.try_send(()).is_err()
                                 {
-                                    if tx.try_send(()).is_err() {
-                                        warn!(
-                                            "LocalHostsResolver: File watch event channel full or closed for {:?}.",
-                                            file_path_to_watch
-                                        );
-                                    }
+                                    warn!(
+                                        "LocalHostsResolver: File watch event channel full or closed for {:?}.",
+                                        file_path_to_watch
+                                    );
                                 }
                             }
                             Err(e) => error!(
@@ -462,8 +461,8 @@ impl LocalHostsResolver {
 
             match IpAddr::from_str(parts[0]) {
                 Ok(ip_addr) => {
-                    for i in 1..parts.len() {
-                        let domain = parts[i].trim_end_matches('.').to_lowercase();
+                    for part in parts.iter().skip(1) {
+                        let domain = part.trim_end_matches('.').to_lowercase();
                         if !domain.is_empty() {
                             entries.entry(domain).or_default().push(ip_addr);
                         }
@@ -496,12 +495,12 @@ mod tests {
     use crate::config::models::{AppConfig, HostsLoadBalancing, LocalHostsConfig};
     use crate::dns_protocol::{DnsMessage, DnsQuestion};
     use hickory_proto::op::ResponseCode;
-    use hickory_proto::rr::rdata::{A, AAAA, PTR};
+
     use hickory_proto::rr::{DNSClass, RData, Record, RecordType};
     use std::collections::BTreeMap;
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::path::PathBuf;
+
     use std::str::FromStr;
     use std::sync::Arc;
     use std::time::Duration;

@@ -12,23 +12,22 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::{RwLock, broadcast, mpsc};
-use tracing::{debug, error, info, warn};
-pub type ConfigUpdateSignal = ();
-pub type ConfigUpdateSender = broadcast::Sender<ConfigUpdateSignal>;
-pub type ConfigUpdateReceiver = broadcast::Receiver<ConfigUpdateSignal>;
+pub(crate) type ConfigUpdateSignal = ();
+pub(crate) type ConfigUpdateSender = broadcast::Sender<ConfigUpdateSignal>;
+pub(crate) type ConfigUpdateReceiver = broadcast::Receiver<ConfigUpdateSignal>;
 
 #[derive(Debug)]
 struct ReloadRequest;
 
 #[derive(Debug)]
-pub struct InitialConfigResult {
+pub(crate) struct InitialConfigResult {
     pub app_config: AppConfig,
     pub config_was_written: bool,
     pub messages: Vec<MigrationMessage>,
     pub was_migrated: bool,
 }
 
-pub struct ConfigurationManager {
+pub(crate) struct ConfigurationManager {
     config: Arc<RwLock<AppConfig>>,
     config_store: Arc<dyn ConfigurationStore>,
     config_file_path: PathBuf,
@@ -40,7 +39,7 @@ pub struct ConfigurationManager {
 }
 
 impl ConfigurationManager {
-    pub async fn new(
+    pub(crate) async fn new(
         config_store: Arc<dyn ConfigurationStore>,
     ) -> Result<(Self, InitialConfigResult), ConfigError> {
         let config_file_path = config_store.get_default_config_path()?;
@@ -186,19 +185,16 @@ impl ConfigurationManager {
                 Ok(config) => {
                     if let Err(val_err) = Self::validate_config_for_update(&config) {
                         let err_msg = format!(
-                            "Existing configuration file {:?} is invalid: {}. Please fix or remove it.",
-                            new_config_path, val_err
+                            "Existing configuration file {new_config_path:?} is invalid: {val_err}. Please fix or remove it."
                         );
                         messages.push(MigrationMessage::warn(err_msg.clone()));
                         tracing::error!("{}", err_msg);
                         return Err(ConfigError::Validation(format!(
-                            "Invalid configuration in {:?}: {}",
-                            new_config_path, val_err
+                            "Invalid configuration in {new_config_path:?}: {val_err}"
                         )));
                     }
                     messages.push(MigrationMessage::info(format!(
-                        "Successfully loaded configuration from {:?}",
-                        new_config_path
+                        "Successfully loaded configuration from {new_config_path:?}"
                     )));
                     return Ok(InitialConfigResult {
                         app_config: config,
@@ -209,8 +205,7 @@ impl ConfigurationManager {
                 }
                 Err(e) => {
                     let err_msg = format!(
-                        "Failed to load or parse existing configuration file {:?}: {}. Please fix or remove it.",
-                        new_config_path, e
+                        "Failed to load or parse existing configuration file {new_config_path:?}: {e}. Please fix or remove it."
                     );
                     messages.push(MigrationMessage::warn(err_msg.clone()));
                     tracing::error!("{}", err_msg);
@@ -241,8 +236,7 @@ impl ConfigurationManager {
                                 if let Err(val_err) = Self::validate_config_for_update(&app_config)
                                 {
                                     let err_msg = format!(
-                                        "Validation of migrated .NET config failed: {}. Using default config instead.",
-                                        val_err
+                                        "Validation of migrated .NET config failed: {val_err}. Using default config instead."
                                     );
                                     messages.push(MigrationMessage::warn(err_msg.clone()));
                                     tracing::error!("{}", err_msg);
@@ -268,8 +262,7 @@ impl ConfigurationManager {
                             }
                             Err(mig_err) => {
                                 let err_msg = format!(
-                                    ".NET legacy migration failed: {}. Using default config instead.",
-                                    mig_err
+                                    ".NET legacy migration failed: {mig_err}. Using default config instead."
                                 );
                                 messages.push(MigrationMessage::warn(err_msg.clone()));
                                 tracing::error!("{}", err_msg);
@@ -294,7 +287,7 @@ impl ConfigurationManager {
                     }
                 }
                 Err(e) => {
-                    messages.push(MigrationMessage::warn(format! ("Error loading .NET legacy config files (even if main_config.json was found): {}. Proceeding to default.", e)));
+                    messages.push(MigrationMessage::warn(format! ("Error loading .NET legacy config files (even if main_config.json was found): {e}. Proceeding to default.")));
                     tracing::warn!(
                         "Error loading .NET legacy config files: {}. Proceeding to default.",
                         e
@@ -320,14 +313,14 @@ impl ConfigurationManager {
         hasher.finish().to_string()
     }
 
-    pub fn start_watching(&self) -> Result<(), ConfigError> {
+    pub(crate) fn start_watching(&self) -> Result<(), ConfigError> {
         let path_to_watch = self.config_file_path.clone();
         let reload_request_tx_clone = self.reload_request_tx.clone();
 
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
             match res {
                 Ok(event) => {
-                    if event.kind.is_modify()
+                    if (event.kind.is_modify()
                         || event.kind.is_create()
                         || event.kind.is_remove()
                         || matches!(
@@ -335,30 +328,29 @@ impl ConfigurationManager {
                             notify::EventKind::Access(AccessKind::Close(
                                 notify::event::AccessMode::Write
                             ))
-                        )
-                    {
-                        if event.paths.iter().any(|p| {
+                        ))
+                        && event.paths.iter().any(|p| {
                             *p == path_to_watch
                                 || (p.file_name() == path_to_watch.file_name()
                                     && p.parent() == path_to_watch.parent())
-                        }) {
-                            tracing::debug!(
-                                "Configuration file {:?} change detected (event kind: {:?}), sending reload request.",
-                                path_to_watch,
-                                event.kind
-                            );
-                            match reload_request_tx_clone.try_send(ReloadRequest) {
-                                Ok(_) => tracing::debug!("Reload request sent to processor."),
-                                Err(mpsc::error::TrySendError::Full(_)) => {
-                                    tracing::warn!(
-                                        "Config reload request channel is full. Reload might be delayed."
-                                    );
-                                }
-                                Err(mpsc::error::TrySendError::Closed(_)) => {
-                                    tracing::error!(
-                                        "Config reload request channel is closed. File watching ineffective."
-                                    );
-                                }
+                        })
+                    {
+                        tracing::debug!(
+                            "Configuration file {:?} change detected (event kind: {:?}), sending reload request.",
+                            path_to_watch,
+                            event.kind
+                        );
+                        match reload_request_tx_clone.try_send(ReloadRequest) {
+                            Ok(_) => tracing::debug!("Reload request sent to processor."),
+                            Err(mpsc::error::TrySendError::Full(_)) => {
+                                tracing::warn!(
+                                    "Config reload request channel is full. Reload might be delayed."
+                                );
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => {
+                                tracing::error!(
+                                    "Config reload request channel is closed. File watching ineffective."
+                                );
                             }
                         }
                     }
@@ -414,19 +406,19 @@ impl ConfigurationManager {
         Ok(())
     }
 
-    pub fn get_config(&self) -> Arc<RwLock<AppConfig>> {
+    pub(crate) fn get_config(&self) -> Arc<RwLock<AppConfig>> {
         Arc::clone(&self.config)
     }
 
-    pub async fn get_config_hash(&self) -> String {
+    pub(crate) async fn get_config_hash(&self) -> String {
         self.current_config_hash.read().await.clone()
     }
 
-    pub fn subscribe_to_updates(&self) -> ConfigUpdateReceiver {
+    pub(crate) fn subscribe_to_updates(&self) -> ConfigUpdateReceiver {
         self.update_tx.subscribe()
     }
 
-    pub fn get_config_file_path(&self) -> &Path {
+    pub(crate) fn get_config_file_path(&self) -> &Path {
         &self.config_file_path
     }
 
@@ -445,16 +437,16 @@ impl ConfigurationManager {
         Ok(())
     }
 
-    pub async fn update_app_config<F>(&self, update_fn: F) -> Result<(), ConfigError>
+    pub(crate) async fn update_app_config<F>(&self, update_fn: F) -> Result<(), ConfigError>
     where
         F: FnOnce(&mut AppConfig) -> Result<(), ConfigError>,
     {
         tracing::info!("Programmatic configuration update initiated.");
         let mut config_w = self.config.write().await;
-        update_fn(&mut *config_w)?;
-        Self::validate_config_for_update(&*config_w)?;
+        update_fn(&mut config_w)?;
+        Self::validate_config_for_update(&config_w)?;
 
-        let new_hash = Self::hash_config(&*config_w);
+        let new_hash = Self::hash_config(&config_w);
         let config_to_save = config_w.clone();
         drop(config_w);
 
@@ -502,19 +494,17 @@ mod tests {
     use super::*;
     use crate::config::models::{
         AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsServiceDiscoveryConfig,
-        DotNetDnsHostConfig, DotNetLegacyConfig, DotNetMainConfig, HashableRegex, LoggingConfig,
-        ResolverStrategy, RuleAction, RuleConfig, ServerConfig,
+        DotNetDnsHostConfig, DotNetLegacyConfig,
     };
     use crate::core::error::ConfigError;
     use crate::core::types::MessageLevel;
     use crate::ports::ConfigurationStore;
-    use regex::Regex;
-    use std::collections::BTreeMap;
+
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex as StdMutex};
 
     use tempfile::tempdir;
-    use tokio::sync::RwLock;
+
     use tokio::time::{Duration, sleep};
 
     #[derive(Default)]
@@ -558,10 +548,6 @@ mod tests {
         fn get_backed_up_legacy_files(&self) -> Vec<PathBuf> {
             self.backed_up_legacy_files.lock().unwrap().clone()
         }
-
-        fn simulate_file_exists(&self, exists: bool) {
-            *self.should_simulate_file_exists.lock().unwrap() = exists;
-        }
     }
 
     impl ConfigurationStore for MockConfigStore {
@@ -584,7 +570,7 @@ mod tests {
                 }
                 Some(Err(_)) => Err(ConfigError::ReadFile {
                     path: PathBuf::from("mock_legacy_config.json"),
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "Mock error"),
+                    source: std::io::Error::other("Mock error"),
                 }),
                 None => Err(ConfigError::ReadFile {
                     path: PathBuf::from("config.json"),
@@ -599,7 +585,7 @@ mod tests {
                 Some(Ok(config)) => Ok(config.clone()),
                 Some(Err(_)) => Err(ConfigError::ReadFile {
                     path: path.to_path_buf(),
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "Mock read error"),
+                    source: std::io::Error::other("Mock read error"),
                 }),
                 None => Err(ConfigError::ReadFile {
                     path: path.to_path_buf(),
@@ -653,31 +639,32 @@ mod tests {
     }
 
     fn create_config_with_duplicate_aws_labels() -> AppConfig {
-        let mut config = AppConfig::default();
-        config.aws = Some(AwsGlobalConfig {
-            accounts: vec![
-                AwsAccountConfig {
-                    label: "duplicate-label".to_string(),
-                    account_id: None,
-                    profile_name: None,
-                    scan_vpc_ids: vec![],
-                    scan_regions: None,
-                    roles_to_assume: vec![],
-                    discover_services: AwsServiceDiscoveryConfig::default(),
-                },
-                AwsAccountConfig {
-                    label: "duplicate-label".to_string(),
-                    account_id: None,
-                    profile_name: None,
-                    scan_vpc_ids: vec![],
-                    scan_regions: None,
-                    roles_to_assume: vec![],
-                    discover_services: AwsServiceDiscoveryConfig::default(),
-                },
-            ],
+        AppConfig {
+            aws: Some(AwsGlobalConfig {
+                accounts: vec![
+                    AwsAccountConfig {
+                        label: "duplicate-label".to_string(),
+                        account_id: None,
+                        profile_name: None,
+                        scan_vpc_ids: vec![],
+                        scan_regions: None,
+                        roles_to_assume: vec![],
+                        discover_services: AwsServiceDiscoveryConfig::default(),
+                    },
+                    AwsAccountConfig {
+                        label: "duplicate-label".to_string(),
+                        account_id: None,
+                        profile_name: None,
+                        scan_vpc_ids: vec![],
+                        scan_regions: None,
+                        roles_to_assume: vec![],
+                        discover_services: AwsServiceDiscoveryConfig::default(),
+                    },
+                ],
+                ..Default::default()
+            }),
             ..Default::default()
-        });
-        config
+        }
     }
 
     #[allow(dead_code)]

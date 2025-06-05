@@ -50,7 +50,7 @@ fn create_table_header() -> Row<'static> {
     Row::new(header_cells).height(1).bottom_margin(1)
 }
 
-pub fn draw_cache_viewer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
+pub(crate) fn draw_cache_viewer(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect) {
     app.cache_panel_actual_height = area.height.saturating_sub(4);
 
     let chunks = Layout::default()
@@ -76,38 +76,6 @@ pub fn draw_cache_viewer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
 
     let header = create_table_header();
 
-    let rows: Vec<Row> = app
-        .cache_view_items
-        .iter()
-        .enumerate()
-        .map(|(idx, (key, entry_arc))| {
-            let ttl_remaining = entry_arc.current_ttl_remaining_secs();
-            let values_summary = entry_arc
-                .records
-                .iter()
-                .map(|r| format_rdata(r.data()))
-                .take(2)
-                .collect::<Vec<String>>()
-                .join(", ");
-
-            let item_style = if idx == app.cache_view_selected_index {
-                Style::default()
-                    .bg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-
-            Row::new(vec![
-                Cell::from(key.name.as_str()),
-                Cell::from(format!("{:?}", key.record_type)),
-                Cell::from(format!("{}s", ttl_remaining)),
-                Cell::from(values_summary),
-            ])
-            .style(item_style)
-        })
-        .collect();
-
     let table_widths = [
         Constraint::Percentage(40),
         Constraint::Percentage(10),
@@ -119,7 +87,7 @@ pub fn draw_cache_viewer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     let visible_items_end = (app.cache_view_scroll_offset + app.cache_panel_actual_height)
         .min(app.cache_view_items.len() as u16) as usize;
 
-    let visible_rows: Vec<Row> = app
+    let visible_rows: Vec<Row<'_>> = app
         .cache_view_items
         .get(visible_items_start..visible_items_end)
         .unwrap_or(&[])
@@ -148,7 +116,7 @@ pub fn draw_cache_viewer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
             Row::new(vec![
                 Cell::from(key.name.as_str()),
                 Cell::from(format!("{:?}", key.record_type)),
-                Cell::from(format!("{}s", ttl_remaining)),
+                Cell::from(format!("{ttl_remaining}s")),
                 Cell::from(values_summary),
             ])
             .style(item_style)

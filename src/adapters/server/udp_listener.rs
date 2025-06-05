@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tracing::{Instrument, error, info, warn};
 
-pub async fn run_udp_listener(
+pub(crate) async fn run_udp_listener(
     app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
     dns_query_service: Arc<dyn DnsQueryService>,
 ) -> Result<(), std::io::Error> {
@@ -19,7 +19,7 @@ pub async fn run_udp_listener(
     let socket = Arc::new(UdpSocket::bind(&listen_address).await?);
     info!("UDP listener started on {}", listen_address);
     app_lifecycle
-        .add_listener_address(format!("UDP:{}", listen_address))
+        .add_listener_address(format!("UDP:{listen_address}"))
         .await;
 
     let cancellation_token = app_lifecycle.get_cancellation_token();
@@ -86,7 +86,7 @@ pub async fn run_udp_listener(
         }
     }
     app_lifecycle
-        .remove_listener_address(format!("UDP:{}", listen_address))
+        .remove_listener_address(format!("UDP:{listen_address}"))
         .await;
     Ok(())
 }

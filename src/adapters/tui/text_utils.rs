@@ -93,7 +93,7 @@ fn markdown_to_ratatui_lines(markdown_input: &'static str) -> Vec<Line<'static>>
                         match list_type {
                             ListType::Ordered => {
                                 current_line_spans.push(Span::styled(
-                                    format!("{}. ", number),
+                                    format!("{number}. "),
                                     Style::default()
                                         .fg(Color::Cyan)
                                         .add_modifier(Modifier::BOLD),
@@ -228,10 +228,10 @@ fn prepare_raw_text_for_popup(raw_text: &'static str) -> Vec<Line<'static>> {
     raw_text.lines().map(Line::from).collect()
 }
 
-pub fn get_license_text_lines() -> Vec<Line<'static>> {
+pub(crate) fn get_license_text_lines() -> Vec<Line<'static>> {
     prepare_raw_text_for_popup(DEFAULT_LICENSE_TEXT)
 }
 
-pub fn get_release_notes_lines() -> Vec<Line<'static>> {
+pub(crate) fn get_release_notes_lines() -> Vec<Line<'static>> {
     markdown_to_ratatui_lines(DEFAULT_RELEASE_NOTES_TEXT)
 }

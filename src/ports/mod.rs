@@ -1,5 +1,4 @@
 use crate::adapters::aws::types::AwsDiscoveredEndpoint;
-use crate::app_lifecycle::AppLifecycleManager;
 use crate::aws_integration::scanner::DiscoveredAwsNetworkInfo;
 use crate::config::models::{
     AppConfig, AwsAccountConfig, AwsRoleConfig, DotNetLegacyConfig, HttpProxyConfig,
@@ -27,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 #[async_trait]
-pub trait AppLifecycleManagerPort: Send + Sync {
+pub(crate) trait AppLifecycleManagerPort: Send + Sync {
     fn get_config(&self) -> Arc<RwLock<AppConfig>>;
     fn get_dns_cache(&self) -> Arc<DnsCache>;
     fn get_status_reporter(&self) -> Arc<dyn StatusReporterPort>;
@@ -64,7 +63,7 @@ pub trait AppLifecycleManagerPort: Send + Sync {
 }
 
 #[async_trait]
-pub trait DnsQueryService: Send + Sync {
+pub(crate) trait DnsQueryService: Send + Sync {
     async fn process_query(
         &self,
         query_bytes: Vec<u8>,
@@ -74,7 +73,7 @@ pub trait DnsQueryService: Send + Sync {
 }
 
 #[async_trait]
-pub trait InteractiveCliPort: Send + Sync {
+pub(crate) trait InteractiveCliPort: Send + Sync {
     async fn handle_cli_command(
         &self,
         command: CliCommand,
@@ -83,7 +82,7 @@ pub trait InteractiveCliPort: Send + Sync {
 }
 
 #[async_trait]
-pub trait UpstreamResolver: Send + Sync {
+pub(crate) trait UpstreamResolver: Send + Sync {
     async fn resolve_dns(
         &self,
         question: &DnsQuestion,
@@ -101,7 +100,7 @@ pub trait UpstreamResolver: Send + Sync {
 }
 
 #[async_trait]
-pub trait AwsConfigProvider: Send + Sync {
+pub(crate) trait AwsConfigProvider: Send + Sync {
     async fn get_credentials_for_account(
         &self,
         account_config: &AwsAccountConfig,
@@ -123,7 +122,7 @@ pub trait AwsConfigProvider: Send + Sync {
 }
 
 #[async_trait]
-pub trait AwsVpcInfoProvider: Send + Sync {
+pub(crate) trait AwsVpcInfoProvider: Send + Sync {
     async fn discover_vpc_endpoints(
         &self,
         credentials: &AwsCredentials,
@@ -144,7 +143,7 @@ pub trait AwsVpcInfoProvider: Send + Sync {
     ) -> Result<HashSet<String>, AwsApiError>;
 }
 
-pub trait ConfigurationStore: Send + Sync {
+pub(crate) trait ConfigurationStore: Send + Sync {
     fn load_dotnet_legacy_config_files(
         &self,
         main_path_opt: Option<&Path>,
@@ -162,7 +161,7 @@ pub trait ConfigurationStore: Send + Sync {
 }
 
 #[async_trait]
-pub trait UserInteractionPort: Send + Sync {
+pub(crate) trait UserInteractionPort: Send + Sync {
     async fn prompt_for_mfa_token(
         &self,
         user_identity: &str,
@@ -180,7 +179,7 @@ pub trait UserInteractionPort: Send + Sync {
 }
 
 #[async_trait]
-pub trait StatusReporterPort: Send + Sync {
+pub(crate) trait StatusReporterPort: Send + Sync {
     async fn report_aws_scanner_status(&self, status: AwsScannerStatus);
     async fn get_aws_scanner_status(&self) -> AwsScannerStatus;
     async fn report_config_status(&self, status: ConfigStatus);

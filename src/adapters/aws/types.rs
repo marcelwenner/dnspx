@@ -5,18 +5,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub type CredentialCacheKey = String;
+pub(crate) type CredentialCacheKey = String;
 
 #[derive(Debug, Clone)]
-pub struct CachedAwsCredentials {
+pub(crate) struct CachedAwsCredentials {
     pub credentials: CoreAwsCredentials,
     pub expiry_time: Option<DateTime<Utc>>,
 }
 
-pub type AwsCredentialsCache = Arc<RwLock<HashMap<CredentialCacheKey, CachedAwsCredentials>>>;
+pub(crate) type AwsCredentialsCache =
+    Arc<RwLock<HashMap<CredentialCacheKey, CachedAwsCredentials>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
-pub struct AwsDiscoveredEndpoint {
+pub(crate) struct AwsDiscoveredEndpoint {
     pub service_dns_name: String,
     pub vpc_endpoint_dns_name: Option<String>,
     pub private_ips: Vec<std::net::IpAddr>,

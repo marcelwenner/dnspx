@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-pub struct AppLifecycleManager {
+pub(crate) struct AppLifecycleManager {
     config_manager: Arc<ConfigurationManager>,
     dns_cache: Arc<DnsCache>,
     local_hosts_resolver: Arc<LocalHostsResolver>,
@@ -142,7 +142,7 @@ impl AppLifecycleManagerPort for AppLifecycleManager {
 }
 
 impl AppLifecycleManager {
-    pub async fn new(
+    pub(crate) async fn new(
         config_manager: Arc<ConfigurationManager>,
         status_reporter: Arc<dyn StatusReporterPort>,
         user_interaction: Arc<dyn UserInteractionPort>,
@@ -192,7 +192,7 @@ impl AppLifecycleManager {
         self.total_queries_processed.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub async fn get_total_queries_processed(&self) -> u64 {
+    pub(crate) async fn get_total_queries_processed(&self) -> u64 {
         self.total_queries_processed.load(Ordering::Relaxed)
     }
 
@@ -256,27 +256,27 @@ impl AppLifecycleManager {
         debug!("Config update listener stopped.");
     }
 
-    pub async fn add_task(&self, handle: JoinHandle<()>) {
+    pub(crate) async fn add_task(&self, handle: JoinHandle<()>) {
         self.main_tasks.lock().await.push(handle);
     }
 
-    pub async fn add_listener_address(&self, addr: String) {
+    pub(crate) async fn add_listener_address(&self, addr: String) {
         let mut listeners = self.active_listeners.lock().await;
         if !listeners.contains(&addr) {
             listeners.push(addr);
         }
     }
 
-    pub async fn remove_listener_address(&self, addr: String) {
+    pub(crate) async fn remove_listener_address(&self, addr: String) {
         let mut listeners = self.active_listeners.lock().await;
         listeners.retain(|x| x != &addr);
     }
 
-    pub async fn get_active_listeners(&self) -> Vec<String> {
+    pub(crate) async fn get_active_listeners(&self) -> Vec<String> {
         self.active_listeners.lock().await.clone()
     }
 
-    pub async fn start(&self) -> Result<(), String> {
+    pub(crate) async fn start(&self) -> Result<(), String> {
         info!("Starting application subsystems...");
         let initial_config_status = ConfigStatus {
             last_loaded_time: Some(chrono::Utc::now()),
@@ -302,7 +302,7 @@ impl AppLifecycleManager {
         Ok(())
     }
 
-    pub async fn stop(&self) {
+    pub(crate) async fn stop(&self) {
         if self.cancellation_token.is_cancelled() {
             info!(
                 "AppLifecycleManager::stop called again or shutdown already in progress. Will proceed to wait for tasks."
@@ -368,47 +368,49 @@ impl AppLifecycleManager {
         );
     }
 
-    pub fn get_cancellation_token(&self) -> CancellationToken {
+    pub(crate) fn get_cancellation_token(&self) -> CancellationToken {
         self.cancellation_token.clone()
     }
 
-    pub fn get_aws_scan_trigger(&self) -> Arc<Notify> {
+    pub(crate) fn get_aws_scan_trigger(&self) -> Arc<Notify> {
         Arc::clone(&self.aws_scan_trigger)
     }
 
-    pub fn get_config(&self) -> Arc<RwLock<AppConfig>> {
+    pub(crate) fn get_config(&self) -> Arc<RwLock<AppConfig>> {
         Arc::clone(&self.config_manager.get_config())
     }
 
-    pub async fn get_config_hash(&self) -> String {
+    pub(crate) async fn get_config_hash(&self) -> String {
         self.config_manager.get_config_hash().await
     }
 
-    pub fn get_dns_cache(&self) -> Arc<DnsCache> {
+    pub(crate) fn get_dns_cache(&self) -> Arc<DnsCache> {
         Arc::clone(&self.dns_cache)
     }
 
-    pub fn get_local_hosts_resolver(&self) -> Arc<LocalHostsResolver> {
+    pub(crate) fn get_local_hosts_resolver(&self) -> Arc<LocalHostsResolver> {
         Arc::clone(&self.local_hosts_resolver)
     }
 
-    pub fn get_status_reporter(&self) -> Arc<dyn StatusReporterPort> {
+    pub(crate) fn get_status_reporter(&self) -> Arc<dyn StatusReporterPort> {
         Arc::clone(&self.status_reporter)
     }
 
-    pub fn get_user_interaction_port(&self) -> Arc<dyn UserInteractionPort> {
+    pub(crate) fn get_user_interaction_port(&self) -> Arc<dyn UserInteractionPort> {
         Arc::clone(&self.user_interaction)
     }
 
-    pub fn get_aws_credentials_cache(&self) -> AwsCredentialsCache {
+    pub(crate) fn get_aws_credentials_cache(&self) -> AwsCredentialsCache {
         Arc::clone(&self.aws_credentials_cache)
     }
 
-    pub fn get_discovered_aws_network_info_view(&self) -> Arc<RwLock<DiscoveredAwsNetworkInfo>> {
+    pub(crate) fn get_discovered_aws_network_info_view(
+        &self,
+    ) -> Arc<RwLock<DiscoveredAwsNetworkInfo>> {
         Arc::clone(&self.discovered_aws_network_info)
     }
 
-    pub async fn get_app_status(&self) -> AppStatus {
+    pub(crate) async fn get_app_status(&self) -> AppStatus {
         let uptime_seconds = self.start_time.elapsed().as_secs();
         let active_listeners = self.get_active_listeners().await;
         let config_hash = self.get_config_hash().await;
@@ -424,7 +426,7 @@ impl AppLifecycleManager {
             .await
     }
 
-    pub async fn trigger_config_reload(&self) -> Result<(), CliError> {
+    pub(crate) async fn trigger_config_reload(&self) -> Result<(), CliError> {
         info!("Manual configuration reload triggered.");
         self.user_interaction.display_message(
             "Config reload mechanism relies on file system watch. Ensure file is saved.",
@@ -433,7 +435,7 @@ impl AppLifecycleManager {
         Ok(())
     }
 
-    pub async fn trigger_aws_scan_refresh(&self) -> Result<(), CliError> {
+    pub(crate) async fn trigger_aws_scan_refresh(&self) -> Result<(), CliError> {
         info!("Manual AWS scan refresh triggered.");
         if self.get_config().read().await.aws.is_none() {
             self.user_interaction.display_message(
@@ -450,7 +452,7 @@ impl AppLifecycleManager {
         Ok(())
     }
 
-    pub async fn add_or_update_aws_account_config(
+    pub(crate) async fn add_or_update_aws_account_config(
         &self,
         new_account_config: AwsAccountConfig,
         original_dnspx_label_for_edit: Option<String>,
@@ -470,7 +472,7 @@ impl AppLifecycleManager {
                         .iter()
                         .any(|acc| &acc.label == target_label)
                 {
-                    let error_msg = format!("dnspx Label '{}' already exists.", target_label);
+                    let error_msg = format!("dnspx Label '{target_label}' already exists.");
                     warn!("{}", error_msg);
                     return Err(ConfigError::Validation(error_msg));
                 }
@@ -528,7 +530,7 @@ impl AppLifecycleManager {
             .await
     }
 
-    pub async fn persist_discovered_aws_details(
+    pub(crate) async fn persist_discovered_aws_details(
         &self,
         discovered_ips: Option<Vec<String>>,
         discovered_zones: Option<Vec<String>>,

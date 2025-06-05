@@ -17,10 +17,10 @@ impl Visit for FieldExtractor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
         let field_name = field.name();
         if field_name == "message" {
-            self.message = Some(format!("{:?}", value));
+            self.message = Some(format!("{value:?}"));
         } else {
             self.fields
-                .insert(field_name.to_string(), format!("{:?}", value));
+                .insert(field_name.to_string(), format!("{value:?}"));
         }
     }
 
@@ -47,12 +47,12 @@ impl Visit for FieldExtractor {
     }
 }
 
-pub struct TuiLoggingLayer {
+pub(crate) struct TuiLoggingLayer {
     log_tx: mpsc::Sender<(String, MessageLevel)>,
 }
 
 impl TuiLoggingLayer {
-    pub fn new(log_tx: mpsc::Sender<(String, MessageLevel)>) -> Self {
+    pub(crate) fn new(log_tx: mpsc::Sender<(String, MessageLevel)>) -> Self {
         Self { log_tx }
     }
 }
@@ -86,7 +86,7 @@ where
         let span_fields_str = String::new();
 
         if let Some(scope) = ctx.event_scope(event) {
-            for span in scope.from_root() {}
+            for _ in scope.from_root() {}
         }
 
         let mut extra_fields_str = String::new();
@@ -102,19 +102,19 @@ where
                 if !extra_fields_str.is_empty() {
                     extra_fields_str.push_str(", ");
                 }
-                write!(extra_fields_str, "{}={}", name, value).ok();
+                write!(extra_fields_str, "{name}={value}").ok();
             }
         }
 
-        let mut final_message = format!("[{}] {}", target, core_message);
+        let mut final_message = format!("[{target}] {core_message}");
         if let Some(s) = source {
-            final_message.push_str(&format!(" (Src: {})", s));
+            final_message.push_str(&format!(" (Src: {s})"));
         }
         if let Some(l_ms) = latency_ms {
-            final_message.push_str(&format!(" ({}ms)", l_ms));
+            final_message.push_str(&format!(" ({l_ms}ms)"));
         }
         if !extra_fields_str.is_empty() {
-            final_message.push_str(&format!(" {{{}}}", extra_fields_str));
+            final_message.push_str(&format!(" {{{extra_fields_str}}}"));
         }
         if !span_fields_str.is_empty() {
             final_message.push_str(&format!(" [{}]", span_fields_str.trim()));

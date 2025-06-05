@@ -5,13 +5,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Default, Clone)]
-pub struct InMemoryStatusStoreAdapter {
+pub(crate) struct InMemoryStatusStoreAdapter {
     aws_status: Arc<RwLock<AwsScannerStatus>>,
     config_status: Arc<RwLock<ConfigStatus>>,
 }
 
 impl InMemoryStatusStoreAdapter {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             aws_status: Arc::new(RwLock::new(AwsScannerStatus::default())),
             config_status: Arc::new(RwLock::new(ConfigStatus::default())),

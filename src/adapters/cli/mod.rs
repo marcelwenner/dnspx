@@ -1,1 +1,1 @@
-pub mod console_cli_adapter;
+pub(crate) mod console_cli_adapter;

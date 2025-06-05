@@ -9,12 +9,12 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
-pub struct JsonFileConfigAdapter {
+pub(crate) struct JsonFileConfigAdapter {
     base_path: PathBuf,
 }
 
 impl JsonFileConfigAdapter {
-    pub fn new(base_path: PathBuf) -> Self {
+    pub(crate) fn new(base_path: PathBuf) -> Self {
         Self { base_path }
     }
 
@@ -220,12 +220,6 @@ mod tests {
             let file_path = self.temp_dir.path().join(filename);
             fs::write(&file_path, content).expect("Failed to write test file");
             file_path
-        }
-
-        fn create_dir(&self, dirname: &str) -> PathBuf {
-            let dir_path = self.temp_dir.path().join(dirname);
-            fs::create_dir_all(&dir_path).expect("Failed to create test directory");
-            dir_path
         }
     }
 
@@ -564,9 +558,11 @@ port = 5432
             let main_path = setup.create_file("config.json", r#"{"test": true}"#);
             let rules_path = setup.create_file("rules.json", r#"{"rules": []}"#);
 
-            let mut legacy_config = DotNetLegacyConfig::default();
-            legacy_config.main_config_path = Some(main_path.clone());
-            legacy_config.rules_config_path = Some(rules_path.clone());
+            let legacy_config = DotNetLegacyConfig {
+                main_config_path: Some(main_path.clone()),
+                rules_config_path: Some(rules_path.clone()),
+                ..Default::default()
+            };
 
             let result = setup
                 .adapter
@@ -600,8 +596,10 @@ port = 5432
         fn backup_dotnet_legacy_config_files_non_existent() {
             let setup = TestSetup::new();
 
-            let mut legacy_config = DotNetLegacyConfig::default();
-            legacy_config.main_config_path = Some(setup.temp_dir.path().join("nonexistent.json"));
+            let legacy_config = DotNetLegacyConfig {
+                main_config_path: Some(setup.temp_dir.path().join("nonexistent.json")),
+                ..Default::default()
+            };
 
             let result = setup
                 .adapter
@@ -648,13 +646,11 @@ port = 5432
             let setup = TestSetup::new();
 
             let config_path = setup.temp_dir.path().join("workflow_test.toml");
-            let mut config = setup.adapter.load_app_config_file(&config_path).unwrap();
+            let config = setup.adapter.load_app_config_file(&config_path).unwrap();
 
             let save_result = setup.adapter.save_app_config_file(&config, &config_path);
             assert!(save_result.is_ok());
             assert!(config_path.exists());
-
-            let reloaded_config = setup.adapter.load_app_config_file(&config_path).unwrap();
         }
 
         #[test]

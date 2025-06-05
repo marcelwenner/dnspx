@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use aws_config::Region;
 use aws_credential_types::Credentials;
 use aws_sdk_ec2::types::{Filter as Ec2Filter, InstanceStateName, VpcEndpointType};
-use aws_sdk_route53::types::Vpc as Route53Vpc;
 use aws_sdk_route53resolver::types::{Filter as ResolverFilter, ResolverEndpointDirection};
 use aws_sdk_sts::config::SharedCredentialsProvider;
 use std::collections::{HashMap, HashSet};
@@ -15,10 +14,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use tracing::{debug, error, info, warn};
 
-pub struct AwsSdkVpcInfoProvider;
+pub(crate) struct AwsSdkVpcInfoProvider;
 
 impl AwsSdkVpcInfoProvider {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
@@ -102,10 +101,7 @@ impl AwsSdkVpcInfoProvider {
         let full_service_name_pattern = if service_vpce_name_pattern.contains("com.amazonaws.") {
             service_vpce_name_pattern.to_string()
         } else {
-            format!(
-                "com.amazonaws.{}.{}",
-                region_filter, service_vpce_name_pattern
-            )
+            format!("com.amazonaws.{region_filter}.{service_vpce_name_pattern}")
         };
 
         for vpce_candidate in raw_vpce_list {
@@ -139,7 +135,7 @@ impl AwsSdkVpcInfoProvider {
         ips
     }
 
-    pub async fn discover_route53_inbound_endpoint_ips(
+    pub(crate) async fn discover_route53_inbound_endpoint_ips(
         &self,
         credentials: &AwsCredentials,
         region: &str,
@@ -232,7 +228,7 @@ impl AwsSdkVpcInfoProvider {
         Ok(discovered_ips)
     }
 
-    pub async fn discover_private_hosted_zones_for_vpc(
+    pub(crate) async fn discover_private_hosted_zones_for_vpc(
         &self,
         credentials: &AwsCredentials,
         vpc_id: &str,
@@ -244,11 +240,6 @@ impl AwsSdkVpcInfoProvider {
         );
         let client = Self::create_route53_client(credentials, vpc_region).await;
         let mut zone_names = HashSet::new();
-
-        let r53_vpc = Route53Vpc::builder()
-            .vpc_id(vpc_id)
-            .vpc_region(aws_sdk_route53::types::VpcRegion::from_str(vpc_region).unwrap())
-            .build();
 
         match client
             .list_hosted_zones_by_vpc()
@@ -276,7 +267,7 @@ impl AwsSdkVpcInfoProvider {
                 );
                 return Err(AwsApiError::ApiCall {
                     service: "Route53".to_string(),
-                    resource_id: format!("ListHostedZonesByVPC for {}", vpc_id),
+                    resource_id: format!("ListHostedZonesByVPC for {vpc_id}"),
                     source: Box::new(service_error),
                 });
             }
@@ -403,9 +394,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                             .first()
                             .and_then(|d| d.dns_name())
                             .map(String::from)
-                            .unwrap_or_else(|| {
-                                format!("{}.{}.vpce.amazonaws.com", vpce_id, region)
-                            });
+                            .unwrap_or_else(|| format!("{vpce_id}.{region}.vpce.amazonaws.com"));
 
                         let vpc_endpoint_dns_name_opt = vpce
                             .dns_entries()
@@ -425,7 +414,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                             service_type: service_name.clone(),
                             region: region.to_string(),
                             vpc_id: vpc_id_opt,
-                            comment: Some(format!("VPC Endpoint ID: {}", vpce_id)),
+                            comment: Some(format!("VPC Endpoint ID: {vpce_id}")),
                         };
                         raw_vpce_list.push(discovered_vpce.clone());
                         all_discovered_endpoints.push(discovered_vpce);
@@ -451,7 +440,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                             if ep_config.types().iter().any(|t| t.as_str() == "PRIVATE") {
                                 if let Some(api_id) = api.id() {
                                     let service_dns_name =
-                                        format!("{}.execute-api.{}.amazonaws.com", api_id, region);
+                                        format!("{api_id}.execute-api.{region}.amazonaws.com");
                                     let execute_api_vpce_service_name_pattern = "execute-api";
 
                                     let mut vpc_id_for_apigw = None;
@@ -586,10 +575,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                     service_type: "ElastiCache-Config".to_string(),
                                     region: region.to_string(),
                                     vpc_id: vpc_id_for_ec.clone(),
-                                    comment: Some(format!(
-                                        "ElastiCache Cluster ID: {}",
-                                        cluster_id
-                                    )),
+                                    comment: Some(format!("ElastiCache Cluster ID: {cluster_id}")),
                                 });
                             }
                         }
@@ -606,8 +592,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                         region: region.to_string(),
                                         vpc_id: vpc_id_for_ec.clone(),
                                         comment: Some(format!(
-                                            "ElastiCache Node for Cluster: {}",
-                                            cluster_id
+                                            "ElastiCache Node for Cluster: {cluster_id}"
                                         )),
                                     });
                                 }
@@ -669,7 +654,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                 service_type: "DocumentDB-Cluster".to_string(),
                                 region: region.to_string(),
                                 vpc_id: vpc_id_for_docdb.clone(),
-                                comment: Some(format!("DocumentDB Cluster ID: {}", cluster_id)),
+                                comment: Some(format!("DocumentDB Cluster ID: {cluster_id}")),
                             });
                         }
                         if !reader_endpoint.is_empty() && reader_endpoint != service_dns_name {
@@ -681,8 +666,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                 region: region.to_string(),
                                 vpc_id: vpc_id_for_docdb,
                                 comment: Some(format!(
-                                    "DocumentDB Reader for Cluster: {}",
-                                    cluster_id
+                                    "DocumentDB Reader for Cluster: {cluster_id}"
                                 )),
                             });
                         }
@@ -756,7 +740,7 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                     service_type: "EC2-Instance".to_string(),
                                     region: region.to_string(),
                                     vpc_id: vpc_id.clone(),
-                                    comment: Some(format!("EC2 Instance ID: {}", instance_id)),
+                                    comment: Some(format!("EC2 Instance ID: {instance_id}")),
                                 });
                             }
                         }

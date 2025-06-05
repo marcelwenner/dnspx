@@ -9,13 +9,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
-pub struct CompositeUpstreamResolver {
+pub(crate) struct CompositeUpstreamResolver {
     std_dns_client: Arc<StandardDnsClient>,
     doh_client: Arc<DohClientAdapter>,
 }
 
 impl CompositeUpstreamResolver {
-    pub fn new(std_dns_client: Arc<StandardDnsClient>, doh_client: Arc<DohClientAdapter>) -> Self {
+    pub(crate) fn new(
+        std_dns_client: Arc<StandardDnsClient>,
+        doh_client: Arc<DohClientAdapter>,
+    ) -> Self {
         Self {
             std_dns_client,
             doh_client,

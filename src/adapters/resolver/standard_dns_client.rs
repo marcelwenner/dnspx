@@ -9,10 +9,10 @@ use tokio::time::timeout;
 use tracing::{debug, error, field, instrument, warn};
 use url::Url;
 
-pub struct StandardDnsClient;
+pub(crate) struct StandardDnsClient;
 
 impl StandardDnsClient {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
@@ -20,7 +20,7 @@ impl StandardDnsClient {
         if server_str.contains(':') {
             server_str.to_string()
         } else {
-            format!("{}:53", server_str)
+            format!("{server_str}:53")
         }
     }
 
@@ -38,16 +38,14 @@ impl StandardDnsClient {
         let lookup_start = Instant::now();
         let mut resolved_addrs = lookup_host(server_str_with_port).await.map_err(|e| {
             ResolveError::Network(format!(
-                "DNS lookup failed for upstream server '{}': {}",
-                server_str_with_port, e
+                "DNS lookup failed for upstream server '{server_str_with_port}': {e}"
             ))
         })?;
         debug!(server = %server_str_with_port, elapsed_ms = lookup_start.elapsed().as_millis(), "Upstream server name lookup_host completed");
 
         let socket_addr = resolved_addrs.next().ok_or_else(|| {
             ResolveError::Configuration(format!(
-                "Could not resolve server address to an IP: {}",
-                server_str_with_port
+                "Could not resolve server address to an IP: {server_str_with_port}"
             ))
         })?;
         debug!(server = %server_str_with_port, "Resolved upstream to IP: {}", socket_addr);
@@ -55,7 +53,7 @@ impl StandardDnsClient {
         let bind_start = Instant::now();
         let socket = UdpSocket::bind("0.0.0.0:0")
             .await
-            .map_err(|e| ResolveError::Network(format!("UDP bind failed: {}", e)))?;
+            .map_err(|e| ResolveError::Network(format!("UDP bind failed: {e}")))?;
         debug!(server = %server_str_with_port, local_addr = ?socket.local_addr().ok(), elapsed_ms = bind_start.elapsed().as_millis(), "UDP socket bound");
 
         let send_start = Instant::now();
@@ -64,7 +62,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "UDP send_to timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("UDP send_to failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("UDP send_to failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, target_addr = %socket_addr, bytes_sent = query_bytes.len(), elapsed_ms = send_start.elapsed().as_millis(), "UDP query sent");
 
         let mut buffer = vec![0u8; 4096];
@@ -74,7 +72,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "UDP recv_from timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("UDP recv_from failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("UDP recv_from failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, source_addr = %src_addr, bytes_received = size, elapsed_ms = recv_start.elapsed().as_millis(), "UDP response received");
 
         buffer.truncate(size);
@@ -115,16 +113,14 @@ impl StandardDnsClient {
         let lookup_start = Instant::now();
         let mut resolved_addrs = lookup_host(server_str_with_port).await.map_err(|e| {
             ResolveError::Network(format!(
-                "DNS lookup failed for upstream server '{}': {}",
-                server_str_with_port, e
+                "DNS lookup failed for upstream server '{server_str_with_port}': {e}"
             ))
         })?;
         debug!(server = %server_str_with_port, elapsed_ms = lookup_start.elapsed().as_millis(), "Upstream server name lookup_host completed (TCP)");
 
         let socket_addr = resolved_addrs.next().ok_or_else(|| {
             ResolveError::Configuration(format!(
-                "Could not resolve server address to an IP: {}",
-                server_str_with_port
+                "Could not resolve server address to an IP: {server_str_with_port}"
             ))
         })?;
         debug!(server = %server_str_with_port, "Resolved upstream to IP for TCP: {}", socket_addr);
@@ -135,7 +131,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "TCP connect timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("TCP connect failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("TCP connect failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, target_addr = %socket_addr, elapsed_ms = connect_start.elapsed().as_millis(), "TCP stream connected");
 
         let len_prefix = (query_bytes.len() as u16).to_be_bytes();
@@ -146,7 +142,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "TCP write length prefix timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("TCP write length prefix failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("TCP write length prefix failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, target_addr = %socket_addr, elapsed_ms = write_len_start.elapsed().as_millis(), "TCP length prefix sent");
 
         let write_query_start = Instant::now();
@@ -155,7 +151,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "TCP write query timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("TCP write query failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("TCP write query failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, target_addr = %socket_addr, bytes_sent = query_bytes.len(), elapsed_ms = write_query_start.elapsed().as_millis(), "TCP query sent");
 
         let mut response_len_buf = [0u8; 2];
@@ -165,7 +161,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "TCP read response length timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("TCP read response length failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("TCP read response length failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, target_addr = %socket_addr, elapsed_ms = read_len_start.elapsed().as_millis(), "TCP response length received");
 
         let response_len = u16::from_be_bytes(response_len_buf) as usize;
@@ -178,8 +174,7 @@ impl StandardDnsClient {
         if response_len > 65535 {
             warn!(server = %server_str_with_port, "TCP response length too large: {}", response_len);
             return Err(ResolveError::InvalidResponse(format!(
-                "TCP response length too large: {}",
-                response_len
+                "TCP response length too large: {response_len}"
             )));
         }
         debug!(server = %server_str_with_port, "Expected TCP response body length: {}", response_len);
@@ -191,7 +186,7 @@ impl StandardDnsClient {
                 warn!(server = %server_str_with_port, timeout_ms = timeout_duration.as_millis(), "TCP read response body timed out");
                 ResolveError::Timeout{ domain: question_name_for_error.to_string(), duration: timeout_duration}
             })?
-            .map_err(|e| ResolveError::Network(format!("TCP read response body failed for {}: {}", socket_addr, e)))?;
+            .map_err(|e| ResolveError::Network(format!("TCP read response body failed for {socket_addr}: {e}")))?;
         debug!(server = %server_str_with_port, target_addr = %socket_addr, bytes_received = response_len, elapsed_ms = read_body_start.elapsed().as_millis(), "TCP response body received");
 
         span.record("operation_time_ms", overall_start.elapsed().as_millis());
@@ -266,8 +261,7 @@ impl UpstreamResolver for StandardDnsClient {
                             } else {
                                 warn!(server = %server_str_with_port, expected_id = query_id, got_id = response_msg.id(), "Mismatched DNS ID from {} (UDP). Discarding.", server_str_with_port);
                                 last_error = Some(ResolveError::InvalidResponse(format!(
-                                    "Mismatched ID from {} (UDP)",
-                                    server_str_with_port
+                                    "Mismatched ID from {server_str_with_port} (UDP)"
                                 )));
                             }
                         }
@@ -306,8 +300,7 @@ impl UpstreamResolver for StandardDnsClient {
                                     } else {
                                         warn!(server = %server_str_with_port, expected_id = query_id, got_id = response_msg_tcp.id(), "Mismatched DNS ID from {} (TCP). Discarding.", server_str_with_port);
                                         last_error = Some(ResolveError::InvalidResponse(format!(
-                                            "Mismatched ID from {} (TCP)",
-                                            server_str_with_port
+                                            "Mismatched ID from {server_str_with_port} (TCP)"
                                         )));
                                     }
                                 }
@@ -382,7 +375,7 @@ mod tests {
         let response = result.unwrap();
         assert_eq!(response.response_code(), ResponseCode::NoError);
         assert!(
-            !response.answers().next().is_none(),
+            response.answers().next().is_some(),
             "Should have at least one A record for google.com"
         );
     }
@@ -417,7 +410,7 @@ mod tests {
             "Unexpected response code: {:?}",
             response.response_code()
         );
-        if response.response_code() == ResponseCode::NoError {}
+        let _ = response.response_code() == ResponseCode::NoError;
         tracing::info!(
             "Test for truncation fallback completed. Result: {:?}",
             response.response_code()

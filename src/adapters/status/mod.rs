@@ -1,1 +1,1 @@
-pub mod memory_status_store;
+pub(crate) mod memory_status_store;

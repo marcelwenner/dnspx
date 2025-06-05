@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 use url::Url;
 
 #[derive(Debug, Clone)]
-pub enum ResolutionInstruction {
+pub(crate) enum ResolutionInstruction {
     ForwardToDns {
         targets: Vec<String>,
         timeout: Duration,
@@ -28,16 +28,16 @@ pub enum ResolutionInstruction {
     UseDefaultResolver,
 }
 
-pub struct RuleEngine {
+pub(crate) struct RuleEngine {
     config: Arc<RwLock<AppConfig>>,
 }
 
 impl RuleEngine {
-    pub fn new(config: Arc<RwLock<AppConfig>>) -> Self {
+    pub(crate) fn new(config: Arc<RwLock<AppConfig>>) -> Self {
         Self { config }
     }
 
-    pub async fn determine_resolution_instruction(
+    pub(crate) async fn determine_resolution_instruction(
         &self,
         question: &DnsQuestion,
     ) -> Option<ResolutionInstruction> {
@@ -178,7 +178,7 @@ mod tests {
     ) -> AppConfig {
         AppConfig {
             routing_rules: rules,
-            default_resolver: default_resolver.unwrap_or_else(DefaultResolverConfig::default),
+            default_resolver: default_resolver.unwrap_or_default(),
             http_proxy,
             ..AppConfig::default()
         }

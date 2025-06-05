@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-pub fn draw_status_panel(frame: &mut Frame, app: &TuiApp, area: Rect) {
+pub(crate) fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     match app.current_status_panel_view {
         StatusPanelView::AwsScanner => {
             draw_aws_scanner_view(frame, app, area);
@@ -19,7 +19,7 @@ pub fn draw_status_panel(frame: &mut Frame, app: &TuiApp, area: Rect) {
 }
 
 fn draw_more_indicator_if_needed(
-    frame: &mut Frame,
+    frame: &mut Frame<'_>,
     content_area: Rect,
     actual_lines_generated: usize,
     available_height_for_content: u16,
@@ -47,7 +47,7 @@ fn draw_more_indicator_if_needed(
     }
 }
 
-fn draw_dashboard_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_dashboard_view(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let mut lines = Vec::new();
 
     let status_str = if app.app_lifecycle.get_cancellation_token().is_cancelled() || app.should_quit
@@ -103,10 +103,7 @@ fn draw_dashboard_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
             ]));
             lines.push(Line::from(vec![
                 Span::raw("🎯 Hit Rate: "),
-                Span::styled(
-                    format!("{:.1}%", hit_rate),
-                    Style::default().fg(Color::Green),
-                ),
+                Span::styled(format!("{hit_rate:.1}%"), Style::default().fg(Color::Green)),
             ]));
         }
         lines.push(Line::from(vec![
@@ -131,7 +128,7 @@ fn draw_dashboard_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
             lines.push(Line::from("  None"));
         } else {
             for listener in &status.active_listeners {
-                lines.push(Line::from(format!("  - {}", listener)));
+                lines.push(Line::from(format!("  - {listener}")));
             }
         }
         lines.push(Line::from(""));
@@ -203,8 +200,6 @@ fn draw_dashboard_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 )
-            } else if aws_status.last_scan_time.is_none() && aws_status.accounts_scanned == 0 {
-                Span::styled("IDLE", Style::default().fg(Color::DarkGray))
             } else {
                 Span::styled("IDLE", Style::default().fg(Color::DarkGray))
             }
@@ -241,7 +236,7 @@ fn draw_dashboard_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
     );
 }
 
-fn draw_aws_scanner_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_aws_scanner_view(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let mut lines = Vec::new();
 
     if let Some(status) = &app.status_cache {
@@ -334,7 +329,7 @@ fn draw_aws_scanner_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
                 lines.push(Line::from(vec![
                     Span::raw("  📈 Success Rate: "),
                     Span::styled(
-                        format!("{:.1}%", success_rate),
+                        format!("{success_rate:.1}%"),
                         if success_rate >= 90.0 {
                             Style::default()
                                 .fg(Color::Green)
@@ -400,7 +395,7 @@ fn draw_aws_scanner_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
                     )));
                     if let Some(region) = &detail_err.region {
                         lines.push(Line::from(Span::styled(
-                            format!("    Region: {}", region),
+                            format!("    Region: {region}"),
                             Style::default().fg(Color::LightRed),
                         )));
                     }
@@ -425,15 +420,10 @@ fn draw_aws_scanner_view(frame: &mut Frame, app: &TuiApp, area: Rect) {
                         }
                         current_err_line.push_str(word);
                     }
-                    if current_err_line.trim_start() != "Error:"
-                        && current_err_line.trim_start() != ""
-                    {
-                        lines.push(Line::from(Span::styled(
-                            current_err_line,
-                            Style::default().fg(Color::LightRed),
-                        )));
-                    } else if detail_err.error.is_empty()
-                        && current_err_line.trim_start() == "Error:"
+                    if (current_err_line.trim_start() != "Error:"
+                        && current_err_line.trim_start() != "")
+                        || (detail_err.error.is_empty()
+                            && current_err_line.trim_start() == "Error:")
                     {
                         lines.push(Line::from(Span::styled(
                             current_err_line,

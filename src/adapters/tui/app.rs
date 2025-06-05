@@ -4,7 +4,6 @@ use crate::adapters::aws::profile_utils::{
 use crate::adapters::tui::event::{AppEvent, EventManager, is_quit_event};
 use crate::adapters::tui::text_utils;
 use crate::adapters::tui::ui;
-use crate::app_lifecycle::AppLifecycleManager;
 use crate::config::models::{AwsAccountConfig, AwsServiceDiscoveryConfig};
 use crate::core::dns_cache::{CacheEntry, CacheKey};
 use crate::core::error::{AwsAuthError, UserInputError};
@@ -27,7 +26,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum TuiLogFilter {
+pub(crate) enum TuiLogFilter {
     All,
     Trace,
     Debug,
@@ -36,7 +35,7 @@ pub enum TuiLogFilter {
     Error,
 }
 impl TuiLogFilter {
-    pub fn next_level(&self) -> Self {
+    pub(crate) fn next_level(&self) -> Self {
         match self {
             TuiLogFilter::All => TuiLogFilter::Trace,
             TuiLogFilter::Trace => TuiLogFilter::Debug,
@@ -46,7 +45,7 @@ impl TuiLogFilter {
             TuiLogFilter::Error => TuiLogFilter::All,
         }
     }
-    pub fn matches(&self, level: &MessageLevel) -> bool {
+    pub(crate) fn matches(&self, level: &MessageLevel) -> bool {
         match self {
             TuiLogFilter::All => true,
             TuiLogFilter::Trace => true,
@@ -59,7 +58,7 @@ impl TuiLogFilter {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Copy, Hash)]
-pub enum AwsSetupField {
+pub(crate) enum AwsSetupField {
     Label,
     AuthMethod,
     AwsProfile,
@@ -70,7 +69,7 @@ pub enum AwsSetupField {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct AwsProfileFormData {
+pub(crate) struct AwsProfileFormData {
     pub original_dnspx_label: Option<String>,
     pub dnspx_label_input: String,
     pub selected_profile_name: String,
@@ -80,10 +79,10 @@ pub struct AwsProfileFormData {
     pub detected_mfa_role_arn: Option<String>,
 }
 
-pub type AwsAccountSubmitData = AwsAccountConfig;
+pub(crate) type AwsAccountSubmitData = AwsAccountConfig;
 
 #[derive(PartialEq, Eq, Clone, Debug, Copy, Default)]
-pub enum InputMode {
+pub(crate) enum InputMode {
     #[default]
     Normal,
     AwsProfileSetupForm,
@@ -91,7 +90,7 @@ pub enum InputMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CacheAddStep {
+pub(crate) enum CacheAddStep {
     PromptName,
     PromptType,
     PromptValueA,
@@ -102,7 +101,7 @@ pub enum CacheAddStep {
     ConfirmAdd,
 }
 #[derive(Debug, Clone, Default)]
-pub struct SyntheticCacheAddData {
+pub(crate) struct SyntheticCacheAddData {
     pub name: String,
     pub record_type: Option<RecordType>,
     pub value_a: Option<std::net::Ipv4Addr>,
@@ -113,7 +112,7 @@ pub struct SyntheticCacheAddData {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
-pub enum StatusPanelView {
+pub(crate) enum StatusPanelView {
     #[default]
     Dashboard,
     AwsScanner,
@@ -121,7 +120,7 @@ pub enum StatusPanelView {
 
 const MAX_LOG_BUFFER_SIZE: usize = 2000;
 
-pub struct TuiApp {
+pub(crate) struct TuiApp {
     pub app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
     pub should_quit: bool,
     pub status_cache: Option<AppStatus>,
@@ -150,6 +149,7 @@ pub struct TuiApp {
     pub aws_profiles_loading: bool,
     pub aws_profile_info_loading: bool,
     pub aws_connection_testing: bool,
+    #[allow(clippy::type_complexity)]
     profile_info_update_receiver: Option<
         mpsc::Receiver<
             Result<
@@ -166,6 +166,7 @@ pub struct TuiApp {
     connection_test_receiver: Option<mpsc::Receiver<Result<String, AwsAuthError>>>,
     aws_init_profile_receiver:
         Option<mpsc::Receiver<Result<Vec<String>, profile_utils::ProfileReadError>>>,
+    #[allow(clippy::type_complexity)]
     aws_init_profile_receiver_for_edit: Option<(
         mpsc::Receiver<Result<Vec<String>, profile_utils::ProfileReadError>>,
         String,
@@ -204,7 +205,7 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
-    pub fn new(
+    pub(crate) fn new(
         app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
         event_tx_to_worker: Option<mpsc::Sender<CliCommand>>,
         log_rx_from_trace: mpsc::Receiver<(String, MessageLevel)>,
@@ -270,7 +271,7 @@ impl TuiApp {
         }
     }
 
-    pub fn toggle_status_panel_view(&mut self) {
+    pub(crate) fn toggle_status_panel_view(&mut self) {
         self.current_status_panel_view = match self.current_status_panel_view {
             StatusPanelView::Dashboard => StatusPanelView::AwsScanner,
             StatusPanelView::AwsScanner => StatusPanelView::Dashboard,
@@ -280,12 +281,12 @@ impl TuiApp {
             StatusPanelView::AwsScanner => "AWS Scanner",
         };
         self.add_log_message_internal(
-            format!("Status panel view switched to: {}", next_view_str),
+            format!("Status panel view switched to: {next_view_str}"),
             MessageLevel::Debug,
         );
     }
 
-    pub fn current_input_with_cursor(&self) -> String {
+    pub(crate) fn current_input_with_cursor(&self) -> String {
         if self.input_mode == InputMode::AwsProfileSetupForm
             && self.aws_setup_current_field == AwsSetupField::Label
         {
@@ -307,7 +308,7 @@ impl TuiApp {
         }
     }
 
-    pub fn clamp_release_notes_scroll(&mut self) {
+    pub(crate) fn clamp_release_notes_scroll(&mut self) {
         let total_lines = self.release_notes_lines.len();
         let view_height = self.releasenotes_popup_content_area_height as usize;
 
@@ -320,43 +321,40 @@ impl TuiApp {
         }
     }
 
-    pub fn get_add_cache_prompt(&self) -> String {
+    pub(crate) fn get_add_cache_prompt(&self) -> String {
         let error_prefix = if let Some(err) = &self.cache_add_error {
-            format!("[ERROR: {}] ", err)
+            format!("[ERROR: {err}] ")
         } else {
             String::new()
         };
         let step_title = match self.current_add_cache_step {
-            Some(CacheAddStep::PromptName) => format!(
-                "{}Enter Domain Name (e.g., test.example.com):",
-                error_prefix
-            ),
+            Some(CacheAddStep::PromptName) => {
+                format!("{error_prefix}Enter Domain Name (e.g., test.example.com):")
+            }
             Some(CacheAddStep::PromptType) => {
                 "Select Record Type (Up/Down, Enter, Esc for Back):".to_string()
             }
             Some(CacheAddStep::PromptValueA) => {
-                format!("{}Enter IPv4 Address (e.g., 1.2.3.4):", error_prefix)
+                format!("{error_prefix}Enter IPv4 Address (e.g., 1.2.3.4):")
             }
             Some(CacheAddStep::PromptValueAAAA) => {
-                format!("{}Enter IPv6 Address (e.g., ::1):", error_prefix)
+                format!("{error_prefix}Enter IPv6 Address (e.g., ::1):")
             }
-            Some(CacheAddStep::PromptValueCNAME) => format!(
-                "{}Enter Target Domain for CNAME (e.g., target.example.com):",
-                error_prefix
-            ),
-            Some(CacheAddStep::PromptValueTXT) => format!(
-                "{}Enter TXT Record Value (max 255 chars per string):",
-                error_prefix
-            ),
+            Some(CacheAddStep::PromptValueCNAME) => {
+                format!("{error_prefix}Enter Target Domain for CNAME (e.g., target.example.com):")
+            }
+            Some(CacheAddStep::PromptValueTXT) => {
+                format!("{error_prefix}Enter TXT Record Value (max 255 chars per string):")
+            }
             Some(CacheAddStep::PromptTTL) => {
-                format!("{}Enter TTL in seconds (e.g., 300, min 60):", error_prefix)
+                format!("{error_prefix}Enter TTL in seconds (e.g., 300, min 60):")
             }
             Some(CacheAddStep::ConfirmAdd) => {
                 "Review and Confirm (Enter/Y to Add, Esc/N for Back)".to_string()
             }
             None => "".to_string(),
         };
-        format!("{} (Esc for Back)", step_title)
+        format!("{step_title} (Esc for Back)")
     }
 
     fn add_log_message_internal(&mut self, message: String, level: MessageLevel) {
@@ -365,7 +363,7 @@ impl TuiApp {
         }
         let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
         self.log_buffer
-            .push_back((format!("[{}] {}", timestamp, message), level));
+            .push_back((format!("[{timestamp}] {message}"), level));
 
         if self.log_follow_mode {
             self.scroll_to_log_end();
@@ -417,11 +415,7 @@ impl TuiApp {
             && (filtered_log_count == 0
                 || filtered_log_count > self.log_panel_actual_height as usize)
         {
-            if filtered_log_count > self.log_panel_actual_height as usize {
-                self.log_follow_mode = true;
-            } else if filtered_log_count == 0 {
-                self.log_follow_mode = true;
-            }
+            self.log_follow_mode = true;
         }
     }
 
@@ -433,7 +427,7 @@ impl TuiApp {
             crate::adapters::aws::profile_utils::create_aws_account_config_from_params(
                 crate::adapters::aws::profile_utils::AwsConfigParams {
                     profile_name,
-                    label: Some(&format!("{}-existence-check", profile_name)),
+                    label: Some(&format!("{profile_name}-existence-check")),
                     ..Default::default()
                 },
             );
@@ -445,7 +439,7 @@ impl TuiApp {
             .is_ok()
     }
 
-    pub async fn aws_init_profile_form_for_add(&mut self) {
+    pub(crate) async fn aws_init_profile_form_for_add(&mut self) {
         self.aws_profiles_loading = true;
         self.aws_profile_info_loading = false;
         self.input_mode = InputMode::AwsProfileSetupForm;
@@ -475,7 +469,7 @@ impl TuiApp {
         );
     }
 
-    pub async fn aws_init_profile_form_for_edit(&mut self, label_to_edit: &str) {
+    pub(crate) async fn aws_init_profile_form_for_edit(&mut self, label_to_edit: &str) {
         self.aws_profiles_loading = true;
         self.aws_profile_info_loading = false;
         self.input_mode = InputMode::AwsProfileSetupForm;
@@ -515,8 +509,7 @@ impl TuiApp {
 
         self.add_log_message_internal(
             format!(
-                "AWS Profile Setup form opened for editing account: {}. Loading profiles...",
-                label_to_edit
+                "AWS Profile Setup form opened for editing account: {label_to_edit}. Loading profiles..."
             ),
             MessageLevel::Info,
         );
@@ -527,6 +520,7 @@ impl TuiApp {
             match receiver.try_recv() {
                 Ok(Ok(mut profiles_from_file)) => {
                     self.aws_profiles_loading = false;
+                    #[allow(unused_assignments)]
                     let mut usable_profiles_found = false;
                     let mut actual_profiles_to_use = Vec::new();
 
@@ -609,13 +603,11 @@ impl TuiApp {
                             self.aws_available_profiles =
                                 vec!["<Error loading profiles>".to_string()];
                             self.aws_form_validation_error = Some(format!(
-                                "Error reading AWS profile file {:?}: {}. Please check AWS CLI setup.",
-                                path, e
+                                "Error reading AWS profile file {path:?}: {e}. Please check AWS CLI setup."
                             ));
                             self.add_log_message_internal(
                                 format!(
-                                    "AWS Profile Setup: Error reading AWS profile file {:?}: {}",
-                                    path, e
+                                    "AWS Profile Setup: Error reading AWS profile file {path:?}: {e}"
                                 ),
                                 MessageLevel::Error,
                             );
@@ -653,6 +645,7 @@ impl TuiApp {
                         .clone()
                         .unwrap_or_else(|| "default".to_string());
 
+                    #[allow(unused_assignments)]
                     let mut usable_profiles_found = false;
                     let mut final_profiles_list = Vec::new();
 
@@ -748,13 +741,11 @@ impl TuiApp {
                             self.aws_available_profiles =
                                 vec!["<Error loading profiles>".to_string()];
                             self.aws_form_validation_error = Some(format!(
-                                "Error reading AWS profile file {:?}: {}. Cannot edit profile. Please check AWS CLI setup.",
-                                path, e
+                                "Error reading AWS profile file {path:?}: {e}. Cannot edit profile. Please check AWS CLI setup."
                             ));
                             self.add_log_message_internal(
                                 format!(
-                                    "AWS Profile Edit: Error reading AWS profile file {:?}: {}",
-                                    path, e
+                                    "AWS Profile Edit: Error reading AWS profile file {path:?}: {e}"
                                 ),
                                 MessageLevel::Error,
                             );
@@ -789,7 +780,7 @@ impl TuiApp {
         }
     }
 
-    pub async fn trigger_aws_profile_info_update(&mut self, profile_name: String) {
+    pub(crate) async fn trigger_aws_profile_info_update(&mut self, profile_name: String) {
         if profile_name.is_empty() || profile_name.starts_with('<') {
             self.aws_profile_info_loading = false;
             self.aws_profile_form_data.detected_account_id =
@@ -844,7 +835,9 @@ impl TuiApp {
                 .await
             {
                 Ok(creds) => {
+                    #[allow(unused_assignments)]
                     let mut account_id_res = None;
+                    #[allow(unused_assignments)]
                     let mut region_res = None;
 
                     match app_lifecycle_clone
@@ -886,7 +879,7 @@ impl TuiApp {
                         Some("Handled by AWS Profile".to_string()),
                     ))
                 }
-                Err(e) => Err(format!("Creds error for profile '{}': {}", profile_name, e)),
+                Err(e) => Err(format!("Creds error for profile '{profile_name}': {e}")),
             };
             if tx.send(result).await.is_err() {
                 error!("Failed to send profile info update back to TUI app");
@@ -910,14 +903,14 @@ impl TuiApp {
                     );
                 }
                 Ok(Err(e)) => {
-                    self.aws_profile_form_data.detected_account_id = Some(format!("Error: {}", e));
+                    self.aws_profile_form_data.detected_account_id = Some(format!("Error: {e}"));
                     self.aws_profile_form_data.detected_default_region = Some("Error".to_string());
                     self.aws_profile_form_data.detected_mfa_serial = Some("Error".to_string());
                     self.aws_profile_form_data.detected_mfa_role_arn = Some("Error".to_string());
                     self.aws_profile_info_loading = false;
                     self.profile_info_update_receiver = None;
                     self.add_log_message_internal(
-                        format!("Failed to update AWS profile info: {}", e),
+                        format!("Failed to update AWS profile info: {e}"),
                         MessageLevel::Error,
                     );
                 }
@@ -1177,10 +1170,7 @@ impl TuiApp {
         let profile_name_to_test = self.aws_profile_form_data.selected_profile_name.clone();
 
         self.add_log_message_internal(
-            format!(
-                "Teste AWS Verbindung für Profil: {}...",
-                profile_name_to_test
-            ),
+            format!("Teste AWS Verbindung für Profil: {profile_name_to_test}..."),
             MessageLevel::Info,
         );
         self.aws_connection_testing = true;
@@ -1223,7 +1213,7 @@ impl TuiApp {
             match receiver.try_recv() {
                 Ok(Ok(arn)) => {
                     self.add_log_message_internal(
-                        format!("AWS Verbindungstest erfolgreich! ARN: {}", arn),
+                        format!("AWS Verbindungstest erfolgreich! ARN: {arn}"),
                         MessageLevel::Info,
                     );
                     if let Some(parts) = arn.split(':').nth(4) {
@@ -1252,9 +1242,9 @@ impl TuiApp {
                 }
                 Ok(Err(e)) => {
                     self.aws_form_validation_error =
-                        Some(format!("Verbindungstest fehlgeschlagen: {}", e));
+                        Some(format!("Verbindungstest fehlgeschlagen: {e}"));
                     self.add_log_message_internal(
-                        format!("AWS Verbindungstest fehlgeschlagen: {}", e),
+                        format!("AWS Verbindungstest fehlgeschlagen: {e}"),
                         MessageLevel::Error,
                     );
                     received_message = true;
@@ -1379,17 +1369,17 @@ impl TuiApp {
                 self.aws_cancel_form();
                 if let Err(e) = self.app_lifecycle.trigger_aws_scan_refresh().await {
                     self.add_log_message_internal(
-                        format!("Fehler beim Starten des AWS Scans: {}", e),
+                        format!("Fehler beim Starten des AWS Scans: {e}"),
                         MessageLevel::Error,
                     );
                 }
             }
             Err(e) => {
                 self.add_log_message_internal(
-                    format!("Fehler beim Speichern der AWS Konfiguration: {}", e),
+                    format!("Fehler beim Speichern der AWS Konfiguration: {e}"),
                     MessageLevel::Error,
                 );
-                self.aws_form_validation_error = Some(format!("Speicherfehler: {}", e));
+                self.aws_form_validation_error = Some(format!("Speicherfehler: {e}"));
             }
         }
     }
@@ -1431,7 +1421,7 @@ impl TuiApp {
         );
     }
 
-    pub async fn run(
+    pub(crate) async fn run(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
         mut event_manager: EventManager,
@@ -1587,7 +1577,6 @@ impl TuiApp {
                             }
                             _ => {}
                         }
-                        event_consumed = true;
                     } else if self.show_releasenotes_popup {
                         match key_event.code {
                             crossterm::event::KeyCode::Up => {
@@ -1648,7 +1637,6 @@ impl TuiApp {
                             }
                             _ => {}
                         }
-                        event_consumed = true;
                     } else if self.input_mode == InputMode::AwsProfileSetupForm {
                         self.handle_aws_profile_form_input(key_event).await;
                     } else if self.show_cache_viewer
@@ -1763,7 +1751,7 @@ impl TuiApp {
                                 );
                                 if let Err(e) = self.app_lifecycle.trigger_config_reload().await {
                                     self.add_log_message_internal(
-                                        format!("Failed to trigger config reload: {}", e),
+                                        format!("Failed to trigger config reload: {e}"),
                                         MessageLevel::Error,
                                     );
                                 }
@@ -1853,13 +1841,13 @@ impl TuiApp {
                         if let Err(e) = tx.send(cmd).await {
                             error!("Failed to send command to TUI worker: {}", e);
                             self.add_log_message_internal(
-                                format!("Error sending command to worker: {}", e),
+                                format!("Error sending command to worker: {e}"),
                                 MessageLevel::Error,
                             );
                         }
                     } else {
                         self.add_log_message_internal(
-                            format!("Cannot process command {:?}: No worker.", cmd),
+                            format!("Cannot process command {cmd:?}: No worker."),
                             MessageLevel::Warning,
                         );
                     }
@@ -2021,7 +2009,7 @@ impl TuiApp {
                 if let Some(key) = self.cache_entry_to_delete.take() {
                     self.app_lifecycle.get_dns_cache().remove(&key).await;
                     self.add_log_message_internal(
-                        format!("Cache entry {:?} deleted.", key),
+                        format!("Cache entry {key:?} deleted."),
                         MessageLevel::Info,
                     );
                 }
@@ -2164,6 +2152,7 @@ impl TuiApp {
     async fn proceed_add_cache_step(&mut self) {
         let step = self.current_add_cache_step.clone();
         let input = self.cache_add_input_buffer.trim().to_string();
+        #[allow(unused_assignments)]
         let mut next_step_opt: Option<CacheAddStep> = None;
         match step {
             Some(CacheAddStep::PromptName) => {
@@ -2293,10 +2282,8 @@ impl TuiApp {
                 .as_ref()
                 .map(|v| RData::TXT(hickory_proto::rr::rdata::TXT::new(v.clone()))),
             _ => {
-                self.cache_add_error = Some(format!(
-                    "Unsupported record type {:?} for manual add.",
-                    rtype
-                ));
+                self.cache_add_error =
+                    Some(format!("Unsupported record type {rtype:?} for manual add."));
                 self.set_add_cache_step(Some(CacheAddStep::PromptType));
                 return;
             }
@@ -2346,11 +2333,11 @@ impl TuiApp {
     }
 }
 
-pub struct TuiUserInteractionAdapter {
+pub(crate) struct TuiUserInteractionAdapter {
     log_tx_to_tui_app: mpsc::Sender<(String, MessageLevel)>,
 }
 impl TuiUserInteractionAdapter {
-    pub fn new(log_tx_to_tui_app: mpsc::Sender<(String, MessageLevel)>) -> Self {
+    pub(crate) fn new(log_tx_to_tui_app: mpsc::Sender<(String, MessageLevel)>) -> Self {
         Self { log_tx_to_tui_app }
     }
 }
@@ -2368,15 +2355,13 @@ impl UserInteractionPort for TuiUserInteractionAdapter {
             .log_tx_to_tui_app
             .send((
                 format!(
-                    "[ACTION REQUIRED] MFA Token for {} (Attempt {}) - Check console.",
-                    user_identity, attempt
+                    "[ACTION REQUIRED] MFA Token for {user_identity} (Attempt {attempt}) - Check console."
                 ),
                 MessageLevel::Warning,
             ))
             .await;
         inquire::Text::new(&format!(
-            "[Attempt {}] Enter MFA token for {}: ",
-            attempt, user_identity
+            "[Attempt {attempt}] Enter MFA token for {user_identity}: "
         ))
         .prompt()
         .map_err(|e| UserInputError::ReadError(std::io::Error::other(e.to_string())))
@@ -2398,22 +2383,18 @@ impl UserInteractionPort for TuiUserInteractionAdapter {
         let _ = self
             .log_tx_to_tui_app
             .send((
-                format!(
-                    "[ACTION REQUIRED] AWS Keys for {} - Check console.",
-                    account_label
-                ),
+                format!("[ACTION REQUIRED] AWS Keys for {account_label} - Check console."),
                 MessageLevel::Warning,
             ))
             .await;
-        let access_key =
-            inquire::Text::new(&format!("Enter Access Key ID for {}: ", account_label))
-                .prompt()
-                .map_err(|e| UserInputError::ReadError(std::io::Error::other(e.to_string())))?;
+        let access_key = inquire::Text::new(&format!("Enter Access Key ID for {account_label}: "))
+            .prompt()
+            .map_err(|e| UserInputError::ReadError(std::io::Error::other(e.to_string())))?;
         if access_key.is_empty() {
             return Err(UserInputError::CancelledOrEmpty);
         }
         let secret_key =
-            inquire::Password::new(&format!("Enter Secret Access Key for {}: ", account_label))
+            inquire::Password::new(&format!("Enter Secret Access Key for {account_label}: "))
                 .with_display_mode(inquire::PasswordDisplayMode::Masked)
                 .prompt()
                 .map_err(|e| UserInputError::ReadError(std::io::Error::other(e.to_string())))?;
@@ -2430,7 +2411,7 @@ impl UserInteractionPort for TuiUserInteractionAdapter {
         {
             println!(
                 "[{:<7}] (TUI Fallback) {}",
-                format!("{:?}", level).to_uppercase(),
+                format!("{level:?}").to_uppercase(),
                 message
             );
         }
@@ -2439,13 +2420,13 @@ impl UserInteractionPort for TuiUserInteractionAdapter {
         debug!("TUI display_status called - TUI updates status via its Tick event.");
     }
     fn display_error(&self, error: &dyn std::error::Error) {
-        let full_error = format!("{}", error);
+        let full_error = format!("{error}");
         if self
             .log_tx_to_tui_app
             .try_send((full_error.clone(), MessageLevel::Error))
             .is_err()
         {
-            eprintln!("[ERROR] (TUI Fallback) {}", full_error);
+            eprintln!("[ERROR] (TUI Fallback) {full_error}");
         }
     }
     fn display_table(&self, headers: Vec<String>, rows: Vec<Vec<String>>) {
@@ -2459,16 +2440,16 @@ impl UserInteractionPort for TuiUserInteractionAdapter {
             .try_send((table_str.clone(), MessageLevel::Info))
             .is_err()
         {
-            println!("[INFO] (TUI Fallback) {}", table_str);
+            println!("[INFO] (TUI Fallback) {table_str}");
         }
     }
     fn display_prompt(&self, prompt_text: &str) {
         if self
             .log_tx_to_tui_app
-            .try_send((format!("Prompt: {}", prompt_text), MessageLevel::Debug))
+            .try_send((format!("Prompt: {prompt_text}"), MessageLevel::Debug))
             .is_err()
         {
-            println!("[DEBUG] (TUI Fallback) Prompt: {}", prompt_text);
+            println!("[DEBUG] (TUI Fallback) Prompt: {prompt_text}");
         }
     }
 }

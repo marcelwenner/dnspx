@@ -4,13 +4,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-pub struct TuiWorker {
+pub(crate) struct TuiWorker {
     app_lifecycle: Arc<AppLifecycleManager>,
     command_rx: mpsc::Receiver<CliCommand>,
 }
 
 impl TuiWorker {
-    pub fn new(
+    pub(crate) fn new(
         app_lifecycle: Arc<AppLifecycleManager>,
         command_rx: mpsc::Receiver<CliCommand>,
     ) -> Self {
@@ -20,7 +20,7 @@ impl TuiWorker {
         }
     }
 
-    pub async fn run(mut self) {
+    pub(crate) async fn run(mut self) {
         info!("TUI Worker started.");
         while let Some(command) = self.command_rx.recv().await {
             info!("TUI Worker received command: {:?}", command);

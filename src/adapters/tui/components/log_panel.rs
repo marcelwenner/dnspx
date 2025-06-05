@@ -8,11 +8,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-pub fn draw_log_panel(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
+pub(crate) fn draw_log_panel(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect) {
     let content_area_height = area.height.saturating_sub(2);
     app.log_panel_actual_height = content_area_height.max(1);
 
-    let filtered_logs_lines: Vec<Line> = app
+    let filtered_logs_lines: Vec<Line<'_>> = app
         .log_buffer
         .iter()
         .filter(|(_, level)| app.tui_log_filter_level.matches(level))

@@ -1,4 +1,4 @@
-pub mod credentials_provider;
-pub mod profile_utils;
-pub mod types;
-pub mod vpc_info_provider;
+pub(crate) mod credentials_provider;
+pub(crate) mod profile_utils;
+pub(crate) mod types;
+pub(crate) mod vpc_info_provider;

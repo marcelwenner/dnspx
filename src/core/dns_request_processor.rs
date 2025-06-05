@@ -1,4 +1,3 @@
-use crate::config::models::AppConfig;
 use crate::core::dns_cache::{CacheKey, DnsCache};
 use crate::core::error::{DnsProcessingError, ResolveError};
 use crate::core::local_hosts_resolver::LocalHostsResolver;
@@ -11,11 +10,10 @@ use hickory_proto::op::ResponseCode;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::RwLock;
 use tracing::{Instrument, Level, Span, debug, error, event, field, instrument, warn};
 use url::Url;
 
-pub struct DnsRequestProcessor {
+pub(crate) struct DnsRequestProcessor {
     app_lifecycle_access: Arc<dyn AppLifecycleManagerPort>,
     dns_cache: Arc<DnsCache>,
     rule_engine: Arc<RuleEngine>,
@@ -24,7 +22,7 @@ pub struct DnsRequestProcessor {
 }
 
 impl DnsRequestProcessor {
-    pub fn new(
+    pub(crate) fn new(
         app_lifecycle_access: Arc<dyn AppLifecycleManagerPort>,
         dns_cache: Arc<DnsCache>,
         rule_engine: Arc<RuleEngine>,
@@ -46,6 +44,7 @@ impl DnsRequestProcessor {
         original_query_message: &Arc<DnsMessage>,
     ) -> Result<DnsMessage, DnsProcessingError> {
         let start_time = Instant::now();
+        #[allow(unused_assignments)]
         let mut source_str: &str = "Unknown";
 
         let config_guard = self.app_lifecycle_access.get_config_for_processor().await;
@@ -109,13 +108,13 @@ impl DnsRequestProcessor {
 
         match &instruction {
             ResolutionInstruction::ForwardToDns { strategy, .. } => {
-                source_str = Box::leak(format!("ForwardDns({:?})", strategy).into_boxed_str())
+                source_str = Box::leak(format!("ForwardDns({strategy:?})").into_boxed_str())
             }
             ResolutionInstruction::ForwardToDoH { strategy, .. } => {
-                source_str = Box::leak(format!("ForwardDoH({:?})", strategy).into_boxed_str())
+                source_str = Box::leak(format!("ForwardDoH({strategy:?})").into_boxed_str())
             }
             ResolutionInstruction::ResolveViaAws { service_hint } => {
-                source_str = Box::leak(format!("ResolveAws({})", service_hint).into_boxed_str())
+                source_str = Box::leak(format!("ResolveAws({service_hint})").into_boxed_str())
             }
             ResolutionInstruction::Block => source_str = "BlockRule",
             ResolutionInstruction::Allow => source_str = "AllowRule->Default",
@@ -197,7 +196,7 @@ impl DnsRequestProcessor {
                         })
                     {
                         source_str = Box::leak(
-                            format!("DefaultResolver(Fallback from {:?})", instruction)
+                            format!("DefaultResolver(Fallback from {instruction:?})")
                                 .into_boxed_str(),
                         );
                         debug!(
@@ -377,6 +376,7 @@ impl DnsQueryService for DnsRequestProcessor {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    use crate::AppConfig;
     use crate::aws_integration::scanner::DiscoveredAwsNetworkInfo;
     use crate::config::models::{
         AwsAccountConfig, CacheConfig, CliConfig, DefaultResolverConfig, HashableRegex,
@@ -392,14 +392,14 @@ mod integration_tests {
     use std::net::SocketAddr;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::Notify;
+    use tokio::sync::{Notify, RwLock};
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
     use assert_matches::assert_matches;
 
     #[derive(Debug, Default)]
-    pub struct MockUpstreamResolver {
+    pub(super) struct MockUpstreamResolver {
         pub dns_call_count: Arc<std::sync::Mutex<usize>>,
         pub doh_call_count: Arc<std::sync::Mutex<usize>>,
         pub should_dns_be_called: bool,
@@ -407,7 +407,7 @@ mod integration_tests {
     }
 
     impl MockUpstreamResolver {
-        pub fn new() -> Self {
+        pub(super) fn new() -> Self {
             Self {
                 dns_call_count: Arc::new(std::sync::Mutex::new(0)),
                 doh_call_count: Arc::new(std::sync::Mutex::new(0)),
@@ -417,11 +417,11 @@ mod integration_tests {
         }
 
         #[allow(dead_code)]
-        pub fn expect_resolve_dns_to_be_called(&mut self, expected: bool) {
+        pub(super) fn expect_resolve_dns_to_be_called(&mut self, expected: bool) {
             self.should_dns_be_called = expected;
         }
         #[allow(dead_code)]
-        pub fn expect_resolve_doh_to_be_called(&mut self, expected: bool) {
+        pub(super) fn expect_resolve_doh_to_be_called(&mut self, expected: bool) {
             self.should_doh_be_called = expected;
         }
     }
@@ -647,7 +647,7 @@ mod integration_tests {
         let rule_engine = Arc::new(RuleEngine::new(config_arc.clone()));
 
         Arc::new(DnsRequestProcessor::new(
-            mock_alm_access as Arc<dyn AppLifecycleManagerPort>,
+            mock_alm_access,
             dns_cache_direct,
             rule_engine,
             local_hosts_resolver,

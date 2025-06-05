@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::config::models::AwsAccountConfig;
 
 #[derive(Debug)]
-pub enum ProfileReadError {
+pub(crate) enum ProfileReadError {
     Io(io::Error, PathBuf),
     NoConfigFilesFound,
 }
@@ -14,7 +14,7 @@ pub enum ProfileReadError {
 impl std::fmt::Display for ProfileReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProfileReadError::Io(e, path) => write!(f, "I/O error for {:?}: {}", path, e),
+            ProfileReadError::Io(e, path) => write!(f, "I/O error for {path:?}: {e}"),
             ProfileReadError::NoConfigFilesFound => write!(
                 f,
                 "Neither ~/.aws/config nor ~/.aws/credentials file found."
@@ -32,7 +32,7 @@ impl std::error::Error for ProfileReadError {
     }
 }
 
-pub fn read_aws_profiles_from_files() -> Result<Vec<String>, ProfileReadError> {
+pub(crate) fn read_aws_profiles_from_files() -> Result<Vec<String>, ProfileReadError> {
     let mut profiles = HashSet::new();
     let mut config_files_checked = false;
     let mut any_file_existed = false;
@@ -108,7 +108,7 @@ pub fn read_aws_profiles_from_files() -> Result<Vec<String>, ProfileReadError> {
 }
 
 #[derive(Default)]
-pub struct AwsConfigParams<'a> {
+pub(crate) struct AwsConfigParams<'a> {
     pub profile_name: &'a str,
     pub account_id: Option<&'a str>,
     pub scan_regions: Option<&'a str>,
@@ -116,7 +116,7 @@ pub struct AwsConfigParams<'a> {
 }
 
 impl<'a> AwsConfigParams<'a> {
-    pub fn parse_scan_regions(&self) -> Option<Vec<String>> {
+    pub(crate) fn parse_scan_regions(&self) -> Option<Vec<String>> {
         let regions: Vec<String> = self
             .scan_regions?
             .split(',')
@@ -131,13 +131,15 @@ impl<'a> AwsConfigParams<'a> {
         }
     }
 
-    pub fn non_empty_string(&self, s: Option<&str>) -> Option<String> {
+    pub(crate) fn non_empty_string(&self, s: Option<&str>) -> Option<String> {
         s.filter(|s| !s.trim().is_empty())
             .map(|s| s.trim().to_string())
     }
 }
 
-pub fn create_aws_account_config_from_params(params: AwsConfigParams) -> AwsAccountConfig {
+pub(crate) fn create_aws_account_config_from_params(
+    params: AwsConfigParams<'_>,
+) -> AwsAccountConfig {
     AwsAccountConfig {
         label: params.label.unwrap_or("connection-test").to_string(),
         profile_name: Some(params.profile_name.to_string()),

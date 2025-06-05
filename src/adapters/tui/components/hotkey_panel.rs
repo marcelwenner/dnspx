@@ -2,13 +2,13 @@ use crate::adapters::tui::app::TuiApp;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
 fn draw_more_indicator_if_needed(
-    frame: &mut Frame,
+    frame: &mut Frame<'_>,
     content_area: Rect,
     actual_lines_generated: usize,
     available_height_for_content: u16,
@@ -36,7 +36,7 @@ fn draw_more_indicator_if_needed(
     }
 }
 
-pub fn draw_hotkey_panel(frame: &mut Frame, _app: &TuiApp, area: Rect) {
+pub(crate) fn draw_hotkey_panel(frame: &mut Frame<'_>, _app: &TuiApp, area: Rect) {
     let hotkeys_content = vec![
         Line::from(vec![
             Span::styled("h, ?", Style::default().fg(Color::Yellow)),

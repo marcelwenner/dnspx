@@ -10,19 +10,19 @@ use std::time::Duration;
 use url::Url;
 
 #[derive(Debug, Clone)]
-pub struct MigrationMessage {
+pub(crate) struct MigrationMessage {
     pub level: MessageLevel,
     pub text: String,
 }
 
 impl MigrationMessage {
-    pub fn info(text: String) -> Self {
+    pub(crate) fn info(text: String) -> Self {
         Self {
             level: MessageLevel::Info,
             text,
         }
     }
-    pub fn warn(text: String) -> Self {
+    pub(crate) fn warn(text: String) -> Self {
         Self {
             level: MessageLevel::Warning,
             text,
@@ -30,7 +30,7 @@ impl MigrationMessage {
     }
 }
 
-pub fn migrate(
+pub(crate) fn migrate(
     dotnet_legacy: DotNetLegacyConfig,
 ) -> Result<(AppConfig, Vec<MigrationMessage>), ConfigError> {
     let mut messages = Vec::new();
@@ -46,15 +46,14 @@ pub fn migrate(
             "Migrating ServerConfig from DnsHostConfig...".to_string(),
         ));
         let port = dns_host.listener_port.unwrap_or(53);
-        app_config.server.listen_address = format!("0.0.0.0:{}", port);
+        app_config.server.listen_address = format!("0.0.0.0:{port}");
         app_config.server.protocols = vec![ProtocolType::Udp, ProtocolType::Tcp];
 
         if let Some(timeout_ms) = dns_host.default_query_timeout {
             if timeout_ms > 0 {
                 app_config.server.default_query_timeout = Duration::from_millis(timeout_ms);
                 messages.push(MigrationMessage::info(format!(
-                    "  Set server.default_query_timeout to {}ms",
-                    timeout_ms
+                    "  Set server.default_query_timeout to {timeout_ms}ms"
                 )));
             }
         }
@@ -65,15 +64,13 @@ pub fn migrate(
                 .filter_map(|s| match IpNetwork::from_str(&s) {
                     Ok(net) => {
                         messages.push(MigrationMessage::info(format!(
-                            "  Parsed network whitelist entry: {}",
-                            net
+                            "  Parsed network whitelist entry: {net}"
                         )));
                         Some(net)
                     }
                     Err(e) => {
                         messages.push(MigrationMessage::warn(format!(
-                            "  Failed to parse network whitelist entry '{}': {}. Skipping.",
-                            s, e
+                            "  Failed to parse network whitelist entry '{s}': {e}. Skipping."
                         )));
                         None
                     }
@@ -98,8 +95,7 @@ pub fn migrate(
                 if !nameservers.is_empty() {
                     app_config.default_resolver.nameservers = nameservers.clone();
                     messages.push(MigrationMessage::info(format!(
-                        "  Set default_resolver.nameservers to: {:?}",
-                        nameservers
+                        "  Set default_resolver.nameservers to: {nameservers:?}"
                     )));
                 }
             }
@@ -113,16 +109,14 @@ pub fn migrate(
                 let strategy = new_strategy.clone();
                 app_config.default_resolver.strategy = new_strategy;
                 messages.push(MigrationMessage::info(format!(
-                    "  Set default_resolver.strategy to: {:?}",
-                    strategy
+                    "  Set default_resolver.strategy to: {strategy:?}"
                 )));
             }
             if let Some(timeout_ms) = servers.query_timeout {
                 if timeout_ms > 0 {
                     app_config.default_resolver.timeout = Duration::from_millis(timeout_ms);
                     messages.push(MigrationMessage::info(format!(
-                        "  Set default_resolver.timeout to {}ms",
-                        timeout_ms
+                        "  Set default_resolver.timeout to {timeout_ms}ms"
                     )));
                 }
             }
@@ -144,9 +138,9 @@ pub fn migrate(
             "Migrating HttpProxyConfig...".to_string(),
         ));
         if let (Some(address), port_opt) = (proxy_legacy.address, proxy_legacy.port) {
-            if !address.is_empty() && port_opt.map_or(true, |p| p > 0) {
+            if !address.is_empty() && port_opt.is_none_or(|p| p > 0) {
                 let port = port_opt.unwrap_or(80);
-                let proxy_url_str = format!("http://{}:{}", address, port);
+                let proxy_url_str = format!("http://{address}:{port}");
                 match Url::parse(&proxy_url_str) {
                     Ok(url) => {
                         let auth_type_legacy_str = proxy_legacy
@@ -178,7 +172,7 @@ pub fn migrate(
                                 ));
                                     (ProxyAuthenticationType::WindowsAuth, None, None, None)
                                 }
-                                "none" | _ => {
+                                _ => {
                                     if proxy_legacy.user.is_some()
                                         && proxy_legacy.password.is_some()
                                     {
@@ -224,12 +218,11 @@ pub fn migrate(
                             bypass_list,
                         });
                         messages.push(MigrationMessage::info(format!(
-                            "  Migrated HTTP Proxy to: {} with auth type {:?}",
-                            proxy_url_str, auth_type_rust
+                            "  Migrated HTTP Proxy to: {proxy_url_str} with auth type {auth_type_rust:?}"
                         )));
                     }
                     Err(e) => {
-                        messages.push(MigrationMessage::warn(format!("  Failed to parse proxy URL '{}' from .NET legacy config: {}. Skipping proxy.", proxy_url_str, e)));
+                        messages.push(MigrationMessage::warn(format!("  Failed to parse proxy URL '{proxy_url_str}' from .NET legacy config: {e}. Skipping proxy.")));
                     }
                 }
             } else {
@@ -253,10 +246,12 @@ pub fn migrate(
             || aws_legacy
                 .user_accounts
                 .as_ref()
-                .map_or(false, |ua| !ua.is_empty())
+                .is_some_and(|ua| !ua.is_empty())
         {
-            let mut aws_global = AwsGlobalConfig::default();
-            aws_global.default_region = aws_legacy.region.clone();
+            let mut aws_global = AwsGlobalConfig {
+                default_region: aws_legacy.region.clone(),
+                ..Default::default()
+            };
             messages.push(MigrationMessage::info(format!(
                 "  Set aws.default_region to: {:?}",
                 aws_global.default_region
@@ -275,8 +270,7 @@ pub fn migrate(
                         account_label_base.replace(|c: char| !c.is_alphanumeric() && c != '-', "_")
                     );
                     messages.push(MigrationMessage::info(format!(
-                        "  Migrating AWS account: Label='{}', Original .NET UserName/ID='{}'",
-                        account_label, account_label_base
+                        "  Migrating AWS account: Label='{account_label}', Original .NET UserName/ID='{account_label_base}'"
                     )));
 
                     let account_conf = AwsAccountConfig {
@@ -293,18 +287,18 @@ pub fn migrate(
                                         if let (Some(role_name), Some(role_account_id)) = (role.role, role.aws_account_id) {
                                             if !role_name.is_empty() && !role_account_id.is_empty() {
                                                 Some(AwsRoleConfig {
-                                                    role_arn: format!("arn:aws:iam::{}:role/{}",role_account_id, role_name),
+                                                    role_arn: format!("arn:aws:iam::{role_account_id}:role/{role_name}"),
                                                     label: role.aws_account_label,
                                                     scan_vpc_ids: role.scan_vpc_ids.unwrap_or_default(),
                                                     scan_regions: None,
                                                     discover_services: AwsServiceDiscoveryConfig::default(),
                                                 })
                                             } else {
-                                                messages.push(MigrationMessage::warn(format!("  Skipping role for account '{}' due to empty role name or account ID.", account_label)));
+                                                messages.push(MigrationMessage::warn(format!("  Skipping role for account '{account_label}' due to empty role name or account ID.")));
                                                 None
                                             }
                                         } else {
-                                            messages.push(MigrationMessage::warn(format!("  Skipping role for account '{}' due to missing role name or account ID.", account_label)));
+                                            messages.push(MigrationMessage::warn(format!("  Skipping role for account '{account_label}' due to missing role name or account ID.")));
                                             None
                                         }
                                     }).collect()
@@ -360,7 +354,7 @@ pub fn migrate(
                         (Some(p), _) => p.clone(),
                         (_, Some(d)) => format!("^{}$", regex::escape(d.trim_end_matches('.'))),
                         _ => {
-                            messages.push(MigrationMessage::warn(format!("  Skipping .NET legacy rule: No valid DomainNamePattern or DomainName found. Rule details: {:?}", rule_legacy)));
+                            messages.push(MigrationMessage::warn(format!("  Skipping .NET legacy rule: No valid DomainNamePattern or DomainName found. Rule details: {rule_legacy:?}")));
                             continue;
                         }
                     };
@@ -379,11 +373,11 @@ pub fn migrate(
                                 .name_server
                                 .filter(|ns_list| !ns_list.is_empty());
                             if nameservers.is_none()
-                                && rule_legacy.strategy.as_deref().map_or(false, |s| {
+                                && rule_legacy.strategy.as_deref().is_some_and(|s| {
                                     s.eq_ignore_ascii_case("Dns") || s.eq_ignore_ascii_case("DoH")
                                 })
                             {
-                                messages.push(MigrationMessage::warn(format!("  Rule for '{}' has 'Dns' or 'DoH' strategy but no nameservers. Rule will likely use default resolver.", pattern_str)));
+                                messages.push(MigrationMessage::warn(format!("  Rule for '{pattern_str}' has 'Dns' or 'DoH' strategy but no nameservers. Rule will likely use default resolver.")));
                             }
 
                             let app_config_strategy =
@@ -413,7 +407,7 @@ pub fn migrate(
                             app_config.routing_rules.push(rule_config);
                         }
                         Err(e) => {
-                            messages.push(MigrationMessage::warn(format!("  Failed to compile regex from .NET legacy domain pattern '{}': {}. Skipping rule.", pattern_str, e)));
+                            messages.push(MigrationMessage::warn(format!("  Failed to compile regex from .NET legacy domain pattern '{pattern_str}': {e}. Skipping rule.")));
                         }
                     }
                 }
@@ -460,7 +454,7 @@ pub fn migrate(
                                     match IpAddr::from_str(ip_s) {
                                         Ok(ip) => Some(ip),
                                         Err(e) => {
-                                            messages.push(MigrationMessage::warn(format!("  Failed to parse IP address '{}' for domains {:?}: {}. Skipping this IP.", ip_s, domain_strings, e)));
+                                            messages.push(MigrationMessage::warn(format!("  Failed to parse IP address '{ip_s}' for domains {domain_strings:?}: {e}. Skipping this IP.")));
                                             None
                                         }
                                     }
@@ -474,8 +468,7 @@ pub fn migrate(
                                     let normalized_domain =
                                         domain_str_raw.trim_end_matches('.').to_lowercase();
                                     messages.push(MigrationMessage::info(format!(
-                                        "  Adding host entry: {} -> {:?}",
-                                        normalized_domain, parsed_ips
+                                        "  Adding host entry: {normalized_domain} -> {parsed_ips:?}"
                                     )));
                                     entries
                                         .entry(normalized_domain)
@@ -484,14 +477,12 @@ pub fn migrate(
                                 }
                             } else {
                                 messages.push(MigrationMessage::info(format!(
-                                    "  Skipping host entry with no valid IPs for domains: {:?}",
-                                    domain_strings
+                                    "  Skipping host entry with no valid IPs for domains: {domain_strings:?}"
                                 )));
                             }
                         } else {
                             messages.push(MigrationMessage::info(format!(
-                                "  Skipping host entry with missing IPs or Domains: {:?}",
-                                host_entry_legacy_copy
+                                "  Skipping host entry with missing IPs or Domains: {host_entry_legacy_copy:?}"
                             )));
                         }
                     }
@@ -542,14 +533,12 @@ pub fn migrate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::*;
+
     use crate::core::types::MessageLevel;
-    use regex::Regex;
-    use std::collections::BTreeMap;
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
     use std::time::Duration;
-    use url::Url;
 
     fn create_dotnet_legacy_from_jsons(
         main_json_str_opt: Option<&str>,
@@ -905,7 +894,7 @@ mod tests {
           }
         }"#;
         let legacy_config = create_dotnet_legacy_from_jsons(None, None, Some(hosts_json));
-        let (app_config, messages) = migrate(legacy_config).unwrap();
+        let (app_config, _) = migrate(legacy_config).unwrap();
 
         assert!(app_config.local_hosts.is_some());
         let entries = &app_config.local_hosts.as_ref().unwrap().entries;
@@ -1169,7 +1158,7 @@ mod tests {
         }"#;
 
         let legacy = create_dotnet_legacy_from_jsons(None, None, Some(hosts_json));
-        let (config, messages) = migrate(legacy).unwrap();
+        let (config, _) = migrate(legacy).unwrap();
 
         assert!(config.local_hosts.is_some());
     }

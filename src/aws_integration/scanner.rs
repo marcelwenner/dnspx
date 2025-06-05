@@ -2,7 +2,6 @@ use crate::adapters::aws::types::AwsDiscoveredEndpoint;
 use crate::config::models::{AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsRoleConfig};
 use crate::core::dns_cache::{CacheKey, DnsCache};
 use crate::core::error::{AwsApiError, ResolveError};
-use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::types::{AccountScanError, AwsCredentials, AwsScannerStatus};
 use crate::dns_protocol::DnsQuestion;
 use crate::ports::{AppLifecycleManagerPort, AwsVpcInfoProvider};
@@ -21,13 +20,13 @@ const VPC_DNS_RESOLVER_IP: &str = "169.254.169.253";
 const VPC_DNS_TIMEOUT: StdDuration = StdDuration::from_secs(2);
 
 #[derive(Debug, Clone, Default)]
-pub struct DiscoveredAwsNetworkInfo {
+pub(crate) struct DiscoveredAwsNetworkInfo {
     pub inbound_endpoint_ips: Vec<IpAddr>,
     pub private_hosted_zone_names: HashSet<String>,
     pub last_discovery_error: Option<String>,
 }
 
-pub struct AwsVpcScannerTask {
+pub(crate) struct AwsVpcScannerTask {
     app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
     config_manager_config: Arc<RwLock<AppConfig>>,
     aws_config_provider: Arc<dyn AwsConfigProvider>,
@@ -40,7 +39,7 @@ pub struct AwsVpcScannerTask {
 }
 
 impl AwsVpcScannerTask {
-    pub fn new(
+    pub(crate) fn new(
         app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
         aws_config_provider: Arc<dyn AwsConfigProvider>,
         aws_vpc_info_provider: Arc<dyn AwsVpcInfoProvider>,
@@ -61,7 +60,7 @@ impl AwsVpcScannerTask {
         }
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub(crate) async fn run(self: Arc<Self>) {
         info!("AWS VPC Scanner Task started.");
 
         if self.config_manager_config.read().await.aws.is_some() {
@@ -190,7 +189,7 @@ impl AwsVpcScannerTask {
                              let err_msg = format!("Failed to discover Private Zones for VPC {} in region {} for account {}: {}", vpc_id, region, account_config.label, e);
                              warn!("{}", err_msg);
                              accumulated_general_errors.push(err_msg.clone());
-                             detailed_scan_errors.push(AccountScanError{ label_or_arn: account_config.label.clone(), region: Some(region.to_string()), error: format!("VPC {}: {}", vpc_id, e)});
+                             detailed_scan_errors.push(AccountScanError{ label_or_arn: account_config.label.clone(), region: Some(region.to_string()), error: format!("VPC {vpc_id}: {e}")});
                          }
                      }
                 }
@@ -273,8 +272,7 @@ impl AwsVpcScannerTask {
                     ),
                     Err(e) => {
                         let err_msg = format!(
-                            "Failed to write AWS proxy bypass list to {:?}: {}",
-                            output_file, e
+                            "Failed to write AWS proxy bypass list to {output_file:?}: {e}"
                         );
                         error!("{}", err_msg);
                         accumulated_general_errors.push(err_msg);
@@ -287,8 +285,7 @@ impl AwsVpcScannerTask {
             Some(accumulated_general_errors.join("; "))
         } else if accounts_failed > 0 {
             Some(format!(
-                "{} accounts had credential failures during scan.",
-                accounts_failed
+                "{accounts_failed} accounts had credential failures during scan."
             ))
         } else {
             None
@@ -375,7 +372,7 @@ impl AwsVpcScannerTask {
 
         let resolver_ip_strings: Vec<String> = inbound_ips_to_query
             .iter()
-            .map(|ip| format!("{}:53", ip))
+            .map(|ip| format!("{ip}:53"))
             .collect();
 
         match self
@@ -426,7 +423,7 @@ impl AwsVpcScannerTask {
         account_config: &AwsAccountConfig,
         region: &str,
         proxy_bypass_list_domains: &mut HashSet<String>,
-        inbound_resolver_ips_for_this_context: &Vec<IpAddr>,
+        inbound_resolver_ips_for_this_context: &[IpAddr],
     ) -> Result<usize, AwsApiError> {
         let discovered_endpoints_from_api: Vec<AwsDiscoveredEndpoint> = self
             .aws_vpc_info_provider

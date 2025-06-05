@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod adapters;
 mod app_lifecycle;
 mod aws_integration;
@@ -23,10 +25,7 @@ use crate::aws_integration::scanner::AwsVpcScannerTask;
 use crate::config::models::{AppConfig, LogFormat, LoggingConfig};
 use crate::core::config_manager::ConfigurationManager;
 use crate::core::rule_engine::RuleEngine;
-use crate::ports::{
-    AwsConfigProvider, DnsQueryService, StatusReporterPort, UpstreamResolver, UserInteractionPort,
-};
-use anyhow;
+use crate::ports::{AwsConfigProvider, DnsQueryService, StatusReporterPort, UserInteractionPort};
 use clap::Parser;
 use core::dns_request_processor::DnsRequestProcessor;
 use crossterm::{
@@ -74,16 +73,14 @@ fn determine_initial_log_settings(config_path: &PathBuf) -> (LoggingConfig, bool
             Ok(cfg) => (cfg.logging, cfg.cli.enable_colors),
             Err(e) => {
                 eprintln!(
-                    "[PRE-INIT WARN] Failed to parse app config from {:?} for log settings: {}. Using defaults.",
-                    config_path, e
+                    "[PRE-INIT WARN] Failed to parse app config from {config_path:?} for log settings: {e}. Using defaults."
                 );
                 (default_logging, default_colors)
             }
         },
         Err(e) => {
             eprintln!(
-                "[PRE-INIT WARN] Could not read app config from {:?} for log settings: {}. Using defaults.",
-                config_path, e
+                "[PRE-INIT WARN] Could not read app config from {config_path:?} for log settings: {e}. Using defaults."
             );
             (default_logging, default_colors)
         }
@@ -93,7 +90,7 @@ fn determine_initial_log_settings(config_path: &PathBuf) -> (LoggingConfig, bool
 fn init_logger_cli(logging_config: &LoggingConfig, terminal_colors_enabled: bool) {
     let env_filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| logging_config.level.clone());
     let env_filter = EnvFilter::try_new(&env_filter_str).unwrap_or_else(|e| {
-        eprintln!("[LOGGER WARN] Failed to parse RUST_LOG/config log level '{}' for CLI: {}. Defaulting CLI to 'info'.", env_filter_str, e);
+        eprintln!("[LOGGER WARN] Failed to parse RUST_LOG/config log level '{env_filter_str}' for CLI: {e}. Defaulting CLI to 'info'.");
         EnvFilter::new("info")
     });
 
@@ -191,10 +188,7 @@ async fn main() -> anyhow::Result<()> {
         match ConfigurationManager::new(Arc::clone(&config_store_adapter)).await {
             Ok((cm, result)) => (Arc::new(cm), result),
             Err(e) => {
-                eprintln!(
-                    "[CRITICAL] Failed to load or initialize configuration: {}. Exiting.",
-                    e
-                );
+                eprintln!("[CRITICAL] Failed to load or initialize configuration: {e}. Exiting.");
                 return Err(e.into());
             }
         };
@@ -230,7 +224,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         init_logger_cli(&final_log_config, final_colors_enabled);
         let adapter = Arc::new(ConsoleCliAdapter::new(final_colors_enabled));
-        user_interaction_port = Arc::clone(&adapter) as Arc<dyn UserInteractionPort>;
+        user_interaction_port = adapter.clone();
         console_cli_adapter_instance_opt = Some(adapter);
     }
 
@@ -255,15 +249,14 @@ async fn main() -> anyhow::Result<()> {
     if let Err(e) = config_manager_instance.start_watching() {
         user_interaction_port.display_message(
             &format!(
-                "Failed to start configuration file watcher: {}. Hot-reloading might not work.",
-                e
+                "Failed to start configuration file watcher: {e}. Hot-reloading might not work."
             ),
             MessageLevel::Warning,
         );
     }
 
-    let status_reporter_adapter =
-        Arc::new(InMemoryStatusStoreAdapter::new()) as Arc<dyn StatusReporterPort>;
+    let status_reporter_adapter: Arc<dyn StatusReporterPort> =
+        Arc::new(InMemoryStatusStoreAdapter::new());
 
     let aws_credentials_cache = Arc::new(TokioRwLock::new(HashMap::new()));
     let aws_config_provider_adapter: Arc<dyn AwsConfigProvider> =
@@ -282,7 +275,7 @@ async fn main() -> anyhow::Result<()> {
     .await;
 
     let app_lifecycle_manager: Arc<dyn AppLifecycleManagerPort> =
-        app_lifecycle_manager_impl.clone() as Arc<dyn AppLifecycleManagerPort>;
+        app_lifecycle_manager_impl.clone();
 
     let local_hosts_resolver_instance = app_lifecycle_manager.get_local_hosts_resolver();
     let lhr_for_watching = Arc::clone(&local_hosts_resolver_instance);
@@ -319,7 +312,7 @@ async fn main() -> anyhow::Result<()> {
         dns_cache_for_processor,
         rule_engine,
         local_hosts_resolver_instance,
-        composite_resolver as Arc<dyn UpstreamResolver>,
+        composite_resolver,
     ));
 
     let aws_vpc_info_provider: Arc<dyn AwsVpcInfoProvider> = Arc::new(AwsSdkVpcInfoProvider::new());
@@ -404,7 +397,7 @@ async fn main() -> anyhow::Result<()> {
             Arc::clone(&app_lifecycle_manager),
             Arc::clone(&aws_config_provider_adapter),
             Arc::clone(&aws_vpc_info_provider),
-            Arc::clone(&std_dns_resolver_adapter) as Arc<dyn UpstreamResolver>,
+            std_dns_resolver_adapter.clone(),
         ));
         let scanner_handle = tokio::spawn(async move {
             scanner_task.run().await;
@@ -413,8 +406,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let app_lifecycle_manager_clone_udp = Arc::clone(&app_lifecycle_manager);
-    let dns_query_service_clone_udp =
-        Arc::clone(&dns_request_processor) as Arc<dyn DnsQueryService>;
+    let dns_query_service_clone_udp: Arc<dyn DnsQueryService> = dns_request_processor.clone();
     let udp_handle = tokio::spawn(async move {
         if let Err(e) = udp_listener::run_udp_listener(
             app_lifecycle_manager_clone_udp,
@@ -428,8 +420,7 @@ async fn main() -> anyhow::Result<()> {
     app_lifecycle_manager.add_task(udp_handle).await;
 
     let app_lifecycle_manager_clone_tcp = Arc::clone(&app_lifecycle_manager);
-    let dns_query_service_clone_tcp =
-        Arc::clone(&dns_request_processor) as Arc<dyn DnsQueryService>;
+    let dns_query_service_clone_tcp: Arc<dyn DnsQueryService> = dns_request_processor.clone();
     let tcp_handle = tokio::spawn(async move {
         if let Err(e) = tcp_listener::run_tcp_listener(
             app_lifecycle_manager_clone_tcp,
@@ -444,7 +435,7 @@ async fn main() -> anyhow::Result<()> {
 
     if let Err(e) = app_lifecycle_manager.start().await {
         user_interaction_port.display_message(
-            &format!("Failed to start application subsystems: {}", e),
+            &format!("Failed to start application subsystems: {e}"),
             MessageLevel::Error,
         );
     }
@@ -474,10 +465,7 @@ async fn main() -> anyhow::Result<()> {
         terminal.show_cursor()?;
 
         if let Err(e) = tui_run_result {
-            eprintln!(
-                "\n[CRITICAL TUI ERROR] {}\nCheck application logs for more details.",
-                e
-            );
+            eprintln!("\n[CRITICAL TUI ERROR] {e}\nCheck application logs for more details.");
         }
         if !app_lifecycle_manager
             .get_cancellation_token()
@@ -512,7 +500,7 @@ async fn main() -> anyhow::Result<()> {
             }
             if let Err(e) = cli_task_handle.await {
                 if !e.is_cancelled() {
-                    eprintln!("[ERROR] CLI task ended with an error: {:?}", e);
+                    eprintln!("[ERROR] CLI task ended with an error: {e:?}");
                 }
             }
         } else {

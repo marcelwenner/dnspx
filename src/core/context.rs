@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tracing::Span;
 
 #[derive(Debug)]
-pub struct RequestContext {
+pub(crate) struct RequestContext {
     pub id: u16,
     pub query_message: Arc<DnsMessage>,
     pub client_addr: SocketAddr,
@@ -17,7 +17,7 @@ pub struct RequestContext {
 }
 
 impl RequestContext {
-    pub fn new(
+    pub(crate) fn new(
         query_message: Arc<DnsMessage>,
         client_addr: SocketAddr,
         protocol: ProtocolType,
@@ -51,18 +51,18 @@ impl RequestContext {
         }
     }
 
-    pub fn queries(&self) -> Vec<AppDnsQuestion> {
+    pub(crate) fn queries(&self) -> Vec<AppDnsQuestion> {
         self.query_message
             .queries()
             .map(AppDnsQuestion::from_hickory_query)
             .collect()
     }
 
-    pub fn create_response(&self, response_code: ResponseCode) -> DnsMessage {
+    pub(crate) fn create_response(&self, response_code: ResponseCode) -> DnsMessage {
         DnsMessage::new_response(&self.query_message, response_code)
     }
 
-    pub fn elapsed(&self) -> std::time::Duration {
+    pub(crate) fn elapsed(&self) -> std::time::Duration {
         self.timestamp.elapsed()
     }
 }

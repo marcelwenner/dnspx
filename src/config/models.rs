@@ -10,7 +10,7 @@ use std::time::Duration;
 use url::Url;
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
-pub struct DotNetLegacyConfig {
+pub(crate) struct DotNetLegacyConfig {
     pub main_config: DotNetMainConfig,
     pub rules_config: Option<DotNetRulesConfig>,
     pub hosts_config: Option<DotNetHostsConfig>,
@@ -21,7 +21,7 @@ pub struct DotNetLegacyConfig {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetMainConfig {
+pub(crate) struct DotNetMainConfig {
     pub dns_host_config: Option<DotNetDnsHostConfig>,
     pub dns_default_server: Option<DotNetDnsDefaultServer>,
     pub http_proxy_config: Option<DotNetHttpProxyConfig>,
@@ -30,7 +30,7 @@ pub struct DotNetMainConfig {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetDnsHostConfig {
+pub(crate) struct DotNetDnsHostConfig {
     pub listener_port: Option<u16>,
     pub network_whitelist: Option<Vec<String>>,
     pub default_query_timeout: Option<u64>,
@@ -38,13 +38,13 @@ pub struct DotNetDnsHostConfig {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetDnsDefaultServer {
+pub(crate) struct DotNetDnsDefaultServer {
     pub servers: Option<DotNetServers>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetServers {
+pub(crate) struct DotNetServers {
     pub name_server: Option<Vec<String>>,
     pub strategy: Option<String>,
     pub compression_mutation: Option<bool>,
@@ -53,7 +53,7 @@ pub struct DotNetServers {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetHttpProxyConfig {
+pub(crate) struct DotNetHttpProxyConfig {
     pub authentication_type: Option<String>,
     pub address: Option<String>,
     pub port: Option<u16>,
@@ -65,14 +65,14 @@ pub struct DotNetHttpProxyConfig {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetAwsSettings {
+pub(crate) struct DotNetAwsSettings {
     pub region: Option<String>,
     pub user_accounts: Option<Vec<DotNetUserAccount>>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetUserAccount {
+pub(crate) struct DotNetUserAccount {
     pub user_account_id: Option<String>,
     pub user_name: Option<String>,
     pub user_access_key: Option<String>,
@@ -84,7 +84,7 @@ pub struct DotNetUserAccount {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetRole {
+pub(crate) struct DotNetRole {
     pub aws_account_label: Option<String>,
     pub aws_account_id: Option<String>,
     pub role: Option<String>,
@@ -94,19 +94,19 @@ pub struct DotNetRole {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetRulesConfig {
+pub(crate) struct DotNetRulesConfig {
     pub rules_config: Option<DotNetRules>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetRules {
+pub(crate) struct DotNetRules {
     pub rules: Option<Vec<DotNetRule>>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetRule {
+pub(crate) struct DotNetRule {
     pub domain_name_pattern: Option<String>,
     pub domain_name: Option<String>,
     pub name_server: Option<Vec<String>>,
@@ -118,32 +118,32 @@ pub struct DotNetRule {
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetHostsConfig {
+pub(crate) struct DotNetHostsConfig {
     pub hosts_config: Option<DotNetHosts>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetHosts {
+pub(crate) struct DotNetHosts {
     pub rule: Option<DotNetHostRule>,
     pub hosts: Option<Vec<DotNetHost>>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetHostRule {
+pub(crate) struct DotNetHostRule {
     pub is_enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DotNetHost {
+pub(crate) struct DotNetHost {
     pub ip_addresses: Option<Vec<String>>,
     pub domain_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct HashableRegex(pub Regex);
+pub(crate) struct HashableRegex(pub Regex);
 
 impl PartialEq for HashableRegex {
     fn eq(&self, other: &Self) -> bool {
@@ -181,12 +181,12 @@ impl<'de> Deserialize<'de> for HashableRegex {
 
 impl Default for HashableRegex {
     fn default() -> Self {
-        HashableRegex(Regex::new("(?!)").unwrap())
+        HashableRegex(Regex::new("$.^").unwrap())
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AppConfig {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) struct AppConfig {
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
@@ -204,24 +204,8 @@ pub struct AppConfig {
     pub cli: CliConfig,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            default_resolver: DefaultResolverConfig::default(),
-            routing_rules: Vec::new(),
-            local_hosts: None,
-            cache: CacheConfig::default(),
-            http_proxy: None,
-            aws: None,
-            logging: LoggingConfig::default(),
-            cli: CliConfig::default(),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ServerConfig {
+pub(crate) struct ServerConfig {
     #[serde(default = "default_listen_address")]
     pub listen_address: String,
     #[serde(default = "default_protocols")]
@@ -252,21 +236,17 @@ impl Default for ServerConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ResolverStrategy {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) enum ResolverStrategy {
+    #[default]
     First,
     Random,
     Rotate,
     Fastest,
 }
-impl Default for ResolverStrategy {
-    fn default() -> Self {
-        ResolverStrategy::First
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DefaultResolverConfig {
+pub(crate) struct DefaultResolverConfig {
     pub nameservers: Vec<String>,
     #[serde(default)]
     pub strategy: ResolverStrategy,
@@ -293,7 +273,7 @@ impl Default for DefaultResolverConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RuleAction {
+pub(crate) enum RuleAction {
     Forward,
     Block,
     Allow,
@@ -301,7 +281,7 @@ pub enum RuleAction {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RuleConfig {
+pub(crate) struct RuleConfig {
     pub name: String,
     #[serde(default)]
     pub domain_pattern: HashableRegex,
@@ -322,21 +302,16 @@ fn default_hosts_ttl() -> u32 {
     300
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum HostsLoadBalancing {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) enum HostsLoadBalancing {
+    #[default]
     All,
     Random,
     First,
 }
 
-impl Default for HostsLoadBalancing {
-    fn default() -> Self {
-        HostsLoadBalancing::All
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LocalHostsConfig {
+pub(crate) struct LocalHostsConfig {
     pub entries: BTreeMap<String, Vec<IpAddr>>,
     pub file_path: Option<PathBuf>,
     #[serde(default)]
@@ -360,7 +335,7 @@ impl Default for LocalHostsConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CacheConfig {
+pub(crate) struct CacheConfig {
     #[serde(default = "default_cache_enabled")]
     pub enabled: bool,
     #[serde(default = "default_max_capacity")]
@@ -406,7 +381,7 @@ impl Default for CacheConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default, Copy)]
-pub enum ProxyAuthenticationType {
+pub(crate) enum ProxyAuthenticationType {
     #[default]
     None,
     Basic,
@@ -415,7 +390,7 @@ pub enum ProxyAuthenticationType {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HttpProxyConfig {
+pub(crate) struct HttpProxyConfig {
     pub url: Url,
     #[serde(default)]
     pub authentication_type: ProxyAuthenticationType,
@@ -426,7 +401,7 @@ pub struct HttpProxyConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AwsGlobalConfig {
+pub(crate) struct AwsGlobalConfig {
     pub default_region: Option<String>,
     pub output_file_name: Option<PathBuf>,
     #[serde(with = "humantime_serde", default = "default_scan_interval")]
@@ -482,7 +457,7 @@ impl Default for AwsGlobalConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AwsAccountConfig {
+pub(crate) struct AwsAccountConfig {
     pub label: String,
     pub account_id: Option<String>,
     pub profile_name: Option<String>,
@@ -497,7 +472,7 @@ pub struct AwsAccountConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct AwsServiceDiscoveryConfig {
+pub(crate) struct AwsServiceDiscoveryConfig {
     #[serde(default = "default_true")]
     pub vpc_endpoints: bool,
     #[serde(default)]
@@ -513,7 +488,7 @@ pub struct AwsServiceDiscoveryConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct AwsRoleConfig {
+pub(crate) struct AwsRoleConfig {
     pub role_arn: String,
     pub label: Option<String>,
     #[serde(default)]
@@ -525,13 +500,13 @@ pub struct AwsRoleConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum LogFormat {
+pub(crate) enum LogFormat {
     Pretty,
     Json,
     Compact,
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LoggingConfig {
+pub(crate) struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
     #[serde(default = "default_log_format")]
@@ -559,7 +534,7 @@ impl Default for LoggingConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CliConfig {
+pub(crate) struct CliConfig {
     #[serde(default = "default_true")]
     pub enable_colors: bool,
     #[serde(default = "default_status_refresh_interval_secs")]

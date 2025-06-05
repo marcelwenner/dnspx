@@ -8,12 +8,16 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
-pub struct DnsMessage {
+pub(crate) struct DnsMessage {
     inner: Message,
 }
 
 impl DnsMessage {
-    pub fn new_query(id: u16, name_str: &str, record_type: RecordType) -> Result<Self, ProtoError> {
+    pub(crate) fn new_query(
+        id: u16,
+        name_str: &str,
+        record_type: RecordType,
+    ) -> Result<Self, ProtoError> {
         let name = Name::from_str(name_str)?;
         let query = HickoryQuery::query(name, record_type);
 
@@ -27,7 +31,7 @@ impl DnsMessage {
         Ok(Self { inner: message })
     }
 
-    pub fn new_response(query_message: &DnsMessage, response_code: ResponseCode) -> Self {
+    pub(crate) fn new_response(query_message: &DnsMessage, response_code: ResponseCode) -> Self {
         let mut message = Message::new();
         message.set_id(query_message.inner.id());
         message.set_message_type(MessageType::Response);
@@ -43,18 +47,23 @@ impl DnsMessage {
         Self { inner: message }
     }
 
-    pub fn add_answer_record(&mut self, record: Record) {
+    pub(crate) fn add_answer_record(&mut self, record: Record) {
         self.inner.add_answer(record);
     }
 
-    pub fn add_answer(&mut self, name_str: &str, ttl: u32, rdata: RData) -> Result<(), ProtoError> {
+    pub(crate) fn add_answer(
+        &mut self,
+        name_str: &str,
+        ttl: u32,
+        rdata: RData,
+    ) -> Result<(), ProtoError> {
         let name = Name::from_str(name_str)?;
         let record = Record::from_rdata(name, ttl, rdata);
         self.inner.add_answer(record);
         Ok(())
     }
 
-    pub fn add_a_record(
+    pub(crate) fn add_a_record(
         &mut self,
         name_str: &str,
         ttl: u32,
@@ -63,45 +72,45 @@ impl DnsMessage {
         self.add_answer(name_str, ttl, RData::A(ip.into()))
     }
 
-    pub fn inner(&self) -> &Message {
+    pub(crate) fn inner(&self) -> &Message {
         &self.inner
     }
 
-    pub fn inner_mut(&mut self) -> &mut Message {
+    pub(crate) fn inner_mut(&mut self) -> &mut Message {
         &mut self.inner
     }
 
-    pub fn queries(&self) -> impl Iterator<Item = &HickoryQuery> {
+    pub(crate) fn queries(&self) -> impl Iterator<Item = &HickoryQuery> {
         self.inner.queries().iter()
     }
 
-    pub fn answers(&self) -> impl Iterator<Item = &Record> {
+    pub(crate) fn answers(&self) -> impl Iterator<Item = &Record> {
         self.inner.answers().iter()
     }
 
-    pub fn id(&self) -> u16 {
+    pub(crate) fn id(&self) -> u16 {
         self.inner.id()
     }
 
-    pub fn response_code(&self) -> ResponseCode {
+    pub(crate) fn response_code(&self) -> ResponseCode {
         self.inner.response_code()
     }
 
-    pub fn set_response_code(&mut self, code: ResponseCode) {
+    pub(crate) fn set_response_code(&mut self, code: ResponseCode) {
         self.inner.set_response_code(code);
     }
 
-    pub fn set_authoritative(&mut self, auth: bool) {
+    pub(crate) fn set_authoritative(&mut self, auth: bool) {
         self.inner.set_authoritative(auth);
     }
 }
 
-pub fn parse_dns_message(bytes: &[u8]) -> Result<DnsMessage, ProtoError> {
+pub(crate) fn parse_dns_message(bytes: &[u8]) -> Result<DnsMessage, ProtoError> {
     let message = Message::from_bytes(bytes)?;
     Ok(DnsMessage { inner: message })
 }
 
-pub fn serialize_dns_message(message: &DnsMessage) -> Result<Vec<u8>, ProtoError> {
+pub(crate) fn serialize_dns_message(message: &DnsMessage) -> Result<Vec<u8>, ProtoError> {
     let mut buffer = Vec::with_capacity(512);
     let mut encoder = BinEncoder::new(&mut buffer);
     message.inner.emit(&mut encoder)?;
@@ -109,14 +118,14 @@ pub fn serialize_dns_message(message: &DnsMessage) -> Result<Vec<u8>, ProtoError
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct DnsQuestion {
+pub(crate) struct DnsQuestion {
     pub name: String,
     pub record_type: RecordType,
     pub class: DNSClass,
 }
 
 impl DnsQuestion {
-    pub fn from_hickory_query(query: &HickoryQuery) -> Self {
+    pub(crate) fn from_hickory_query(query: &HickoryQuery) -> Self {
         Self {
             name: query.name().to_utf8(),
             record_type: query.query_type(),

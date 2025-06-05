@@ -11,19 +11,19 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct CacheKey {
+pub(crate) struct CacheKey {
     pub name: String,
     pub record_type: RecordType,
 }
 
 impl CacheKey {
-    pub fn from_question(question: &DnsQuestion) -> Self {
+    pub(crate) fn from_question(question: &DnsQuestion) -> Self {
         Self {
             name: question.name.trim_end_matches('.').to_lowercase(),
             record_type: question.record_type,
         }
     }
-    pub fn new(name: &str, record_type: RecordType) -> Self {
+    pub(crate) fn new(name: &str, record_type: RecordType) -> Self {
         Self {
             name: name.trim_end_matches('.').to_lowercase(),
             record_type,
@@ -32,7 +32,7 @@ impl CacheKey {
 }
 
 #[derive(Debug, Clone)]
-pub struct CacheEntry {
+pub(crate) struct CacheEntry {
     pub records: Vec<Record>,
     pub response_code: ResponseCode,
     pub cached_at: std::time::Instant,
@@ -40,7 +40,7 @@ pub struct CacheEntry {
 }
 
 impl CacheEntry {
-    pub fn new(records: Vec<Record>, response_code: ResponseCode, ttl: Duration) -> Self {
+    pub(crate) fn new(records: Vec<Record>, response_code: ResponseCode, ttl: Duration) -> Self {
         Self {
             records,
             response_code,
@@ -49,15 +49,15 @@ impl CacheEntry {
         }
     }
 
-    pub fn is_valid(&self) -> bool {
+    pub(crate) fn is_valid(&self) -> bool {
         self.cached_at.elapsed() < self.ttl
     }
 
-    pub fn current_ttl_remaining(&self) -> Duration {
+    pub(crate) fn current_ttl_remaining(&self) -> Duration {
         self.ttl.saturating_sub(self.cached_at.elapsed())
     }
 
-    pub fn current_ttl_remaining_secs(&self) -> u32 {
+    pub(crate) fn current_ttl_remaining_secs(&self) -> u32 {
         self.current_ttl_remaining()
             .as_secs()
             .try_into()
@@ -65,7 +65,7 @@ impl CacheEntry {
     }
 }
 
-pub struct DnsCache {
+pub(crate) struct DnsCache {
     cache: Cache<CacheKey, Arc<CacheEntry>>,
     min_ttl: Duration,
     max_ttl: Duration,
@@ -79,7 +79,7 @@ pub struct DnsCache {
 }
 
 impl DnsCache {
-    pub fn new(
+    pub(crate) fn new(
         max_capacity: u64,
         min_ttl: Duration,
         max_ttl: Duration,
@@ -101,7 +101,7 @@ impl DnsCache {
         }
     }
 
-    pub async fn get(&self, key: &CacheKey, allow_stale: bool) -> Option<Arc<CacheEntry>> {
+    pub(crate) async fn get(&self, key: &CacheKey, allow_stale: bool) -> Option<Arc<CacheEntry>> {
         if let Some(entry_arc) = self.cache.get(key).await {
             self.hits.fetch_add(1, Ordering::Relaxed);
             if entry_arc.is_valid() {
@@ -126,7 +126,7 @@ impl DnsCache {
         }
     }
 
-    pub async fn insert(&self, key: CacheKey, response_message: &DnsMessage) {
+    pub(crate) async fn insert(&self, key: CacheKey, response_message: &DnsMessage) {
         if response_message.response_code() != ResponseCode::NoError
             && response_message.response_code() != ResponseCode::NXDomain
         {
@@ -150,7 +150,7 @@ impl DnsCache {
                 authority_records
                     .iter()
                     .find(|r| r.record_type() == RecordType::SOA)
-                    .and_then(|soa_record| Some(soa_record.data()))
+                    .map(|soa_record| soa_record.data())
                     .and_then(|rdata| {
                         if let RData::SOA(ref soa) = *rdata {
                             Some(soa.minimum())
@@ -202,7 +202,7 @@ impl DnsCache {
         self.inserts.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub async fn insert_synthetic_entry(
+    pub(crate) async fn insert_synthetic_entry(
         &self,
         key: CacheKey,
         records: Vec<Record>,
@@ -239,7 +239,7 @@ impl DnsCache {
         self.inserts.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub async fn remove(&self, key: &CacheKey) {
+    pub(crate) async fn remove(&self, key: &CacheKey) {
         debug!(?key, "Removing entry from cache.");
         if self.cache.get(key).await.is_some() {
             self.evictions.fetch_add(1, Ordering::Relaxed);
@@ -247,7 +247,7 @@ impl DnsCache {
         self.cache.invalidate(key).await;
     }
 
-    pub async fn clear_all(&self) {
+    pub(crate) async fn clear_all(&self) {
         info!("Clearing all entries from DNS cache.");
         let count_before = self.cache.entry_count();
         self.cache.invalidate_all();
@@ -259,7 +259,7 @@ impl DnsCache {
         );
     }
 
-    pub fn get_stats(&self) -> CoreCacheStats {
+    pub(crate) fn get_stats(&self) -> CoreCacheStats {
         CoreCacheStats {
             hits: self.hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
@@ -269,11 +269,11 @@ impl DnsCache {
         }
     }
 
-    pub fn get_insert_count(&self) -> u64 {
+    pub(crate) fn get_insert_count(&self) -> u64 {
         self.inserts.load(Ordering::Relaxed)
     }
 
-    pub fn get_hit_rate(&self) -> f64 {
+    pub(crate) fn get_hit_rate(&self) -> f64 {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
         let total = hits + misses;
@@ -285,13 +285,13 @@ impl DnsCache {
         }
     }
 
-    pub fn reset_stats(&self) {
+    pub(crate) fn reset_stats(&self) {
         self.hits.store(0, Ordering::Relaxed);
         self.misses.store(0, Ordering::Relaxed);
         self.inserts.store(0, Ordering::Relaxed);
     }
 
-    pub async fn get_all_active_entries(&self) -> Vec<(CacheKey, Arc<CacheEntry>)> {
+    pub(crate) async fn get_all_active_entries(&self) -> Vec<(CacheKey, Arc<CacheEntry>)> {
         let mut evicted_count = 0;
         let mut active_entries: Vec<(CacheKey, Arc<CacheEntry>)> = self
             .cache
