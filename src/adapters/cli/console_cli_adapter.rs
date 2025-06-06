@@ -33,7 +33,7 @@ impl ConsoleCliAdapter {
         let cancellation_token = app_lifecycle.get_cancellation_token();
 
         let is_tty = atty::is(atty::Stream::Stdin);
-        
+
         if !is_tty {
             cancellation_token.cancelled().await;
             println!("CLI loop shutting down due to application stop.");
