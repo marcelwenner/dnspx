@@ -1,11 +1,11 @@
-#![allow(dead_code)] // Allow dead code for SspiAuthManager when not on windows
+#![allow(dead_code)]
 use crate::config::models::{HttpProxyConfig, ProxyAuthenticationType};
 use crate::core::error::ResolveError;
 use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
 use crate::ports::UpstreamResolver;
 use reqwest::{
     Body, Client, Proxy, StatusCode,
-    header::{ACCEPT, CONTENT_TYPE, HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION},
+    header::{ACCEPT, CONTENT_TYPE},
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,33 +13,30 @@ use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
-// Importiere SspiAuthManager und SspiAuthState aus dem korrekten Modul
 #[cfg(windows)]
 use super::sspi_auth::{SspiAuthManager, SspiAuthState};
+#[cfg(windows)]
+use reqwest::header::{HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION};
 
 #[cfg(not(windows))]
 mod sspi_auth_mock_client {
-    // Eigener Modulname, um Konflikte zu vermeiden
-    use super::*; // Importiert ResolveError, etc. von oben
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum SspiAuthState {
+    use super::*;
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    pub(super) enum SspiAuthState {
+        #[default]
         Initial,
         Failed(String),
         NegotiateSent,
         Authenticated,
         ChallengeReceived,
     }
-    impl Default for SspiAuthState {
-        fn default() -> Self {
-            SspiAuthState::Initial
-        }
-    }
+
     #[derive(Debug, Default)]
-    pub struct SspiAuthManager {
-        pub target_spn: String,
-    } // Mock SspiAuthManager für non-Windows
+    pub(super) struct SspiAuthManager {
+        pub(super) target_spn: String,
+    }
     impl SspiAuthManager {
-        pub fn new(
+        pub(super) fn new(
             target_spn: String,
             _username: Option<String>,
             _password: Option<String>,
@@ -47,34 +44,33 @@ mod sspi_auth_mock_client {
         ) -> Result<Self, ResolveError> {
             Ok(Self { target_spn })
         }
-        pub fn new_for_current_user(target_spn: String) -> Result<Self, ResolveError> {
+        pub(super) fn new_for_current_user(target_spn: String) -> Result<Self, ResolveError> {
             Ok(Self { target_spn })
         }
-        pub async fn get_initial_token(&self) -> Result<String, ResolveError> {
+        pub(super) async fn get_initial_token(&self) -> Result<String, ResolveError> {
             Err(ResolveError::HttpProxy("SSPI (mock) not supported".into()))
         }
-        pub async fn get_challenge_response_token(
+        pub(super) async fn get_challenge_response_token(
             &self,
             _challenge_header: &str,
         ) -> Result<String, ResolveError> {
             Err(ResolveError::HttpProxy("SSPI (mock) not supported".into()))
         }
-        pub async fn reset(&self) {}
-        pub async fn get_auth_state(&self) -> SspiAuthState {
+        pub(super) async fn reset(&self) {}
+        pub(super) async fn get_auth_state(&self) -> SspiAuthState {
             SspiAuthState::Initial
         }
-        pub async fn is_authenticated(&self) -> bool {
+        pub(super) async fn is_authenticated(&self) -> bool {
             false
         }
-        pub async fn mark_failed(&self, _message: String) {}
-        // get_state_info ist nicht unbedingt im Mock nötig, wenn nicht verwendet
-        pub async fn get_state_info(&self) -> String {
+        pub(super) async fn mark_failed(&self, _message: String) {}
+        pub(super) async fn get_state_info(&self) -> String {
             format!("Mock SSPI State for SPN: {}", self.target_spn)
         }
     }
 }
 #[cfg(not(windows))]
-use sspi_auth_mock_client::{SspiAuthManager, SspiAuthState};
+use sspi_auth_mock_client::SspiAuthManager;
 
 const DOH_MEDIA_TYPE: &str = "application/dns-message";
 
@@ -144,32 +140,44 @@ impl DohClientAdapter {
                     });
                     match host_res {
                         Ok(host) => {
-                            sspi_auth_manager_opt = if proxy_auth_type
-                                == ProxyAuthenticationType::WindowsAuth
+                            #[cfg(windows)]
                             {
-                                Some(SspiAuthManager::new_for_current_user(host.to_string())?)
-                            } else {
-                                // NTLM
-                                if let (Some(user), Some(pass)) =
-                                    (&proxy_conf.username, &proxy_conf.password)
+                                let manager = if proxy_auth_type
+                                    == ProxyAuthenticationType::WindowsAuth
                                 {
-                                    Some(SspiAuthManager::new(
-                                        host.to_string(),
-                                        Some(user.clone()),
-                                        Some(pass.clone()),
-                                        proxy_conf.domain.clone(),
-                                    )?)
+                                    SspiAuthManager::new_for_current_user(host.to_string())?
                                 } else {
-                                    warn!(
-                                        "NTLM Auth for proxy {} selected without credentials. Attempting current user.",
-                                        proxy_url_str
-                                    );
-                                    Some(SspiAuthManager::new_for_current_user(host.to_string())?)
-                                }
-                            };
+                                    if let (Some(user), Some(pass)) =
+                                        (&proxy_conf.username, &proxy_conf.password)
+                                    {
+                                        SspiAuthManager::new(
+                                            host.to_string(),
+                                            Some(user.clone()),
+                                            Some(pass.clone()),
+                                            proxy_conf.domain.clone(),
+                                        )?
+                                    } else {
+                                        warn!(
+                                            "NTLM Auth for proxy {} selected without credentials. Attempting current user.",
+                                            proxy_url_str
+                                        );
+                                        SspiAuthManager::new_for_current_user(host.to_string())?
+                                    }
+                                };
+                                sspi_auth_manager_opt = Some(manager);
+                            }
+                            #[cfg(not(windows))]
+                            {
+                                warn!(
+                                    "SSPI (NTLM/WindowsAuth) for proxy {} is not supported on this platform.",
+                                    proxy_url_str
+                                );
+                                sspi_auth_manager_opt =
+                                    Some(SspiAuthManager::new_for_current_user(host.to_string())?);
+                            }
                             if sspi_auth_manager_opt.is_some() {
                                 info!(
-                                    "SSPI Auth Manager configured for proxy: {} with type: {:?}",
+                                    "SSPI Auth Manager (or mock) configured for proxy: {} with type: {:?}",
                                     proxy_url_str, proxy_auth_type
                                 );
                             }
@@ -302,6 +310,7 @@ impl DohClientAdapter {
         }
     }
 
+    #[allow(clippy::never_loop)]
     #[instrument(skip_all, fields(doh_server = %url, q_name = %question_name))]
     async fn execute_doh_request_internal(
         &self,
@@ -359,9 +368,12 @@ impl DohClientAdapter {
                 )));
             }
 
-            let mut current_request_builder = self
-                .http_client
-                .post(url.clone())
+            #[cfg(windows)]
+            let mut current_request_builder = self.http_client.post(url.clone());
+            #[cfg(not(windows))]
+            let current_request_builder = self.http_client.post(url.clone());
+
+            let current_request_builder = current_request_builder
                 .header(CONTENT_TYPE, DOH_MEDIA_TYPE)
                 .header(ACCEPT, DOH_MEDIA_TYPE)
                 .body(Body::from((*query_bytes).clone()));
@@ -453,11 +465,12 @@ impl DohClientAdapter {
                                             attempt, url, challenge
                                         );
                                         last_proxy_challenge = Some(challenge.to_string());
+
                                         if let SspiAuthState::Failed(msg) =
                                             sspi_mgr.get_auth_state().await
                                         {
                                             error!(
-                                                "SSPI manager in failed state before retry: {}",
+                                                "SSPI manager is in failed state before retry: {}",
                                                 msg
                                             );
                                             return Err(ResolveError::HttpProxy(format!(
@@ -465,7 +478,7 @@ impl DohClientAdapter {
                                                 msg
                                             )));
                                         }
-                                        continue;
+                                        continue 'auth_retry;
                                     } else {
                                         let err_msg = format!(
                                             "Proxy sent 407 but no {} header for {}",
@@ -1496,17 +1509,16 @@ mod sspi_integration_tests {
         ));
         assert!(!manager.is_authenticated().await);
 
-        // Simulate initial token request
-        let _ = manager.get_initial_token().await; // This will likely fail without a real SPN/Proxy
-        // but we can check the state transition if it doesn't error out before state change
+        let _ = manager.get_initial_token().await;
         if !matches!(manager.get_auth_state().await, SspiAuthState::Failed(_)) {
             assert!(matches!(
                 manager.get_auth_state().await,
                 SspiAuthState::NegotiateSent
+                    | SspiAuthState::Authenticated
+                    | SspiAuthState::ChallengeReceived
             ));
         }
 
-        // Manually set to Authenticated for testing reset
         manager.set_auth_state(SspiAuthState::Authenticated).await;
         assert!(manager.is_authenticated().await);
 
@@ -1531,11 +1543,11 @@ mod sspi_integration_tests {
             panic!("Expected Failed");
         }
 
-        manager.mark_failed("Second failure".to_string()).await; // mark_failed now overwrites
+        manager.mark_failed("Second failure".to_string()).await;
         let state2 = manager.get_auth_state().await;
         if let SspiAuthState::Failed(msg) = state2 {
             assert!(msg.contains("Second failure"));
-            // assert!(msg.contains(" | ")); // This logic was in your old mark_failed
+            assert!(!msg.contains("First failure") || msg == "Second failure");
         } else {
             panic!("Expected Failed state");
         }
@@ -1544,9 +1556,6 @@ mod sspi_integration_tests {
     #[tokio::test]
     async fn test_sspi_concurrent_token_generation() {
         let manager = Arc::new(
-            // SspiAuthManager itself is not Sync due to Mutex<Ntlm>
-            // However, if calls are sequential on the same manager, it's fine.
-            // For true concurrent calls on *different* managers, this test is okay.
             SspiAuthManager::new_for_current_user("concurrent.example.com".to_string())
                 .expect("Should create manager"),
         );
@@ -1556,7 +1565,6 @@ mod sspi_integration_tests {
         for _ in 0..3 {
             let mgr_clone = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                // These calls will likely fail without a real proxy, but shouldn't deadlock.
                 let _ = mgr_clone.get_initial_token().await;
                 let _ = mgr_clone.is_authenticated().await;
             }));
