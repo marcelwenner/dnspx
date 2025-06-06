@@ -87,7 +87,7 @@ test_proxy_connectivity() {
     log_info "Attempting to connect to DNS proxy..."
     
     # Try dig and check for actual response content
-    RESULT=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST +short google.com 2>&1)
+    RESULT=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short google.com 2>&1)
     
     # Check if we got an IP address (even with warnings)
     if echo "$RESULT" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' >/dev/null 2>&1; then
@@ -123,7 +123,7 @@ test_basic_resolution() {
         echo -n "Testing $domain... "
         
         START_TIME=$(date +%s.%N)
-        RESULT=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST +short $domain 2>/dev/null)
+        RESULT=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short $domain 2>/dev/null)
         END_TIME=$(date +%s.%N)
         
         ((TOTAL_QUERIES++))
@@ -156,7 +156,7 @@ test_cache_performance() {
     # First query (cache miss)
     echo -n "First query (cache miss)... "
     START_TIME=$(date +%s.%N)
-    RESULT1=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST +short $TEST_DOMAIN 2>/dev/null)
+    RESULT1=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short $TEST_DOMAIN 2>/dev/null)
     END_TIME=$(date +%s.%N)
     
     if [[ -n "$RESULT1" ]]; then
@@ -173,7 +173,7 @@ test_cache_performance() {
     # Second query (cache hit)
     echo -n "Second query (cache hit)... "
     START_TIME=$(date +%s.%N)
-    RESULT2=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST +short $TEST_DOMAIN 2>/dev/null)
+    RESULT2=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short $TEST_DOMAIN 2>/dev/null)
     END_TIME=$(date +%s.%N)
     
     if [[ -n "$RESULT2" ]]; then
@@ -221,7 +221,7 @@ test_concurrent_performance() {
     # Run concurrent queries with different domains
     for i in $(seq 0 $((CONCURRENT_JOBS-1))); do
         DOMAIN=${CONCURRENT_DOMAINS[$i]}
-        (timeout $TEST_TIMEOUT dig @$PROXY_HOST +short "$DOMAIN" >/dev/null 2>&1 && echo "SUCCESS" || echo "FAILED") &
+        (timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short "$DOMAIN" >/dev/null 2>&1 && echo "SUCCESS" || echo "FAILED") &
     done
     
     # Wait for all background jobs
@@ -252,7 +252,7 @@ test_record_types() {
     for record_type in "${RECORD_TYPES[@]}"; do
         echo -n "Testing $record_type record... "
         
-        RESULT=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST +short -t $record_type $TEST_DOMAIN 2>/dev/null)
+        RESULT=$(timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short -t $record_type $TEST_DOMAIN 2>/dev/null)
         
         if [[ -n "$RESULT" ]]; then
             echo -e "${GREEN}✓${NC}"
@@ -304,7 +304,7 @@ stress_test() {
         fi
         
         DOMAIN=${STRESS_DOMAINS[$i]}
-        (timeout $TEST_TIMEOUT dig @$PROXY_HOST +short "$DOMAIN" >/dev/null 2>&1) &
+        (timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short "$DOMAIN" >/dev/null 2>&1) &
     done
     
     wait # Wait for all queries to complete
@@ -346,7 +346,7 @@ performance_comparison() {
     # Test proxy
     echo -n "Your DNS Proxy with $PROXY_DOMAIN... "
     START_TIME=$(date +%s.%N)
-    timeout $TEST_TIMEOUT dig @$PROXY_HOST +short "$PROXY_DOMAIN" >/dev/null 2>&1
+    timeout $TEST_TIMEOUT dig @$PROXY_HOST -p $PROXY_PORT +short "$PROXY_DOMAIN" >/dev/null 2>&1
     END_TIME=$(date +%s.%N)
     PROXY_TIME=$(echo "($END_TIME - $START_TIME) * 1000" | bc 2>/dev/null || echo "N/A")
     echo "${PROXY_TIME}ms"

@@ -32,6 +32,14 @@ impl ConsoleCliAdapter {
 
         let cancellation_token = app_lifecycle.get_cancellation_token();
 
+        let is_tty = atty::is(atty::Stream::Stdin);
+        
+        if !is_tty {
+            cancellation_token.cancelled().await;
+            println!("CLI loop shutting down due to application stop.");
+            return;
+        }
+
         loop {
             self.display_prompt("dnspx> ");
             line_buf.clear();
@@ -47,9 +55,6 @@ impl ConsoleCliAdapter {
                         break;
                     }
                 }
-            }
-            if app_lifecycle.get_cancellation_token().is_cancelled() {
-                break;
             }
 
             let command_str = line_buf.trim();

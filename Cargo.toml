@@ -46,6 +46,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json",
 clap = { version = "4.5", features = ["derive", "std"], default-features = false }
 thiserror = "2.0"
 inquire = "0.7"
+atty = "0.2"
 
 # Caching
 moka = { version = "0.12", features = ["future"], default-features = false }
