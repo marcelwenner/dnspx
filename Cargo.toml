@@ -91,7 +91,7 @@ base64 = "0.22"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]
-sspi = "0.13"
+sspi = "0.15.9"
 picky-asn1 = "0.10"
 
 [dev-dependencies]
