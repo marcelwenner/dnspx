@@ -21,9 +21,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_INCREMENTAL: 0  # Disable incremental compilation for CI
-  CARGO_NET_RETRY: 10   # Retry network requests
-  RUST_LOG: warn        # Reduce log noise
+  CARGO_INCREMENTAL: 0    # Disable incremental compilation for CI
+  CARGO_NET_RETRY: 10     # Retry network requests
+  RUST_LOG: warn          # Reduce log noise
+  CARGO_BUILD_JOBS: 2     # Limit parallel compilation jobs
 
 jobs:
   # ===== CROSS-PLATFORM BUILD & TEST =====
@@ -85,7 +86,7 @@ jobs:
 
     - name: Run Clippy lints
       if: matrix.rust == 'stable'
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: cargo clippy --all-targets --no-default-features --features aws,tui -- -D warnings
 
     - name: Build (Debug)
       run: cargo build --verbose

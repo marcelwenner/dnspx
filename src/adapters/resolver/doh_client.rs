@@ -7,9 +7,6 @@ use reqwest::{
     Body, Client, Proxy, StatusCode,
     header::{ACCEPT, CONTENT_TYPE},
 };
-
-#[cfg(windows)]
-use reqwest::header::{HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,9 +14,54 @@ use tracing::{debug, error, instrument, warn};
 use url::Url;
 
 #[cfg(windows)]
-use super::sspi_auth::SspiAuthManager;
+use super::sspi_auth::{SspiAuthManager, SspiAuthState}; // SspiAuthState import hinzugefügt
+
 #[cfg(not(windows))]
-use super::sspi_auth_mock::SspiAuthManager;
+mod sspi_auth_mock {
+    // Mock für non-Windows
+    use super::*;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) enum SspiAuthState {
+        Initial,
+        Failed(String),
+        NegotiateSent,
+        Authenticated,
+    }
+    #[derive(Debug)]
+    pub(super) struct SspiAuthManager;
+    impl SspiAuthManager {
+        pub(super) fn new_current_user(_proxy_host: &str) -> Result<Self, ResolveError> {
+            Ok(Self)
+        }
+        pub(super) fn new_with_credentials(
+            _username: &str,
+            _password: &str,
+            _domain: Option<&str>,
+            _proxy_host: &str,
+        ) -> Result<Self, ResolveError> {
+            Ok(Self)
+        }
+        pub(super) async fn reset(&self) {}
+        pub(super) async fn mark_failed(&self, _reason: String) {}
+        // Folgende Methoden sind als Mocks implementiert
+        pub(super) async fn get_auth_state(&self) -> SspiAuthState {
+            SspiAuthState::Initial
+        }
+        pub(super) async fn set_auth_state(&self, _state: SspiAuthState) {}
+        pub(super) async fn get_negotiate_token(&self) -> Result<String, ResolveError> {
+            Err(ResolveError::HttpProxy("SSPI not supported".into()))
+        }
+        pub(super) async fn handle_challenge(
+            &self,
+            _challenge_header: &str,
+        ) -> Result<Option<String>, ResolveError> {
+            Err(ResolveError::HttpProxy("SSPI not supported".into()))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+use sspi_auth_mock::SspiAuthManager;
 
 const DOH_MEDIA_TYPE: &str = "application/dns-message";
 
@@ -27,7 +69,77 @@ pub(crate) struct DohClientAdapter {
     http_client: Client,
     proxy_config: Option<HttpProxyConfig>,
     default_timeout: Duration,
-    sspi_auth_manager: Option<SspiAuthManager>,
+    sspi_auth_manager: Option<SspiAuthManager>, // Bleibt Option<SspiAuthManager>
+}
+
+// Hilfsfunktionen für SSPI-Logik, angepasst an self.sspi_auth_manager
+impl DohClientAdapter {
+    #[cfg(windows)]
+    async fn handle_sspi_auth_initial(&self) -> Result<Option<String>, ResolveError> {
+        if let Some(manager) = &self.sspi_auth_manager {
+            match manager.get_auth_state().await {
+                SspiAuthState::Initial => {
+                    // SspiAuthManager::get_initial_token liefert bereits "Negotiate <token>"
+                    let auth_header = manager.get_initial_token().await?;
+                    // SspiAuthManager setzt intern den Status auf NegotiateSent
+                    Ok(Some(auth_header))
+                }
+                _ => Ok(None), // Bereits initialisiert oder fehlgeschlagen
+            }
+        } else {
+            Ok(None) // Kein SSPI-Manager
+        }
+    }
+
+    #[cfg(windows)]
+    async fn handle_sspi_auth_challenge(
+        &self,
+        challenge_header: &str,
+    ) -> Result<Option<String>, ResolveError> {
+        if let Some(manager) = &self.sspi_auth_manager {
+            match manager.get_auth_state().await {
+                SspiAuthState::NegotiateSent | SspiAuthState::ChallengeReceived => {
+                    // SspiAuthManager::get_challenge_response_token liefert bereits "Negotiate <token>"
+                    let response_token_str = manager
+                        .get_challenge_response_token(challenge_header)
+                        .await?;
+                    // SspiAuthManager setzt intern den Status auf Authenticated oder ChallengeReceived
+                    if response_token_str.is_empty() && manager.is_authenticated().await {
+                        Ok(None) // Authenticated, no further token to send
+                    } else if !response_token_str.is_empty() {
+                        Ok(Some(response_token_str))
+                    } else {
+                        // Potenziell ein Zustand, in dem ContinueNeeded war, aber kein Token kam,
+                        // und wir noch nicht als Authenticated markiert sind.
+                        // SspiAuthManager::get_challenge_response_token sollte dies als Fehler behandeln.
+                        // Hier gehen wir davon aus, dass SspiAuthManager bei Erfolg entweder ein Token liefert oder authentifiziert ist.
+                        Ok(None)
+                    }
+                }
+                SspiAuthState::Initial => {
+                    // Sollte nicht passieren, wenn Server direkt mit 407 antwortet
+                    warn!("Received challenge in SSPI Initial state. Attempting initial token.");
+                    self.handle_sspi_auth_initial().await
+                }
+                _ => Ok(None), // Authenticated oder Failed
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[cfg(windows)]
+    async fn check_sspi_auth_failure(&self) -> Result<(), ResolveError> {
+        if let Some(manager) = &self.sspi_auth_manager {
+            if let SspiAuthState::Failed(msg) = manager.get_auth_state().await {
+                return Err(ResolveError::AuthenticationFailed(format!(
+                    "SSPI authentication failed: {}",
+                    msg
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl DohClientAdapter {
@@ -37,23 +149,17 @@ impl DohClientAdapter {
     ) -> Result<Self, ResolveError> {
         let user_agent = format!("dnspx/{}", env!("CARGO_PKG_VERSION"));
 
-        // This client_builder is used to construct self.http_client
-        // It will be configured with a proxy if Basic or None auth is used.
-        // For SSPI, self.http_client will be direct, and SSPI headers are added per-request.
         let mut client_builder = Client::builder()
             .timeout(default_timeout)
             .user_agent(user_agent.clone());
 
-        #[cfg(windows)]
-        let mut sspi_auth_manager_opt: Option<SspiAuthManager> = None;
-        #[cfg(not(windows))]
         let sspi_auth_manager_opt: Option<SspiAuthManager> = None;
 
         if let Some(ref proxy_conf) = global_proxy_config {
             let proxy_url_str = proxy_conf.url.as_str();
 
             match proxy_conf.url.scheme() {
-                "http" | "https" => { /* Valid schemes */ }
+                "http" | "https" => {}
                 invalid_scheme => {
                     return Err(ResolveError::HttpProxy(format!(
                         "Unsupported proxy URL scheme '{}'. Only 'http' and 'https' are supported: {}",
@@ -121,31 +227,20 @@ impl DohClientAdapter {
                                     host,
                                 )?
                             } else {
-                                // Your original code for NTLM without creds:
-                                // Sets proxy on client_builder and creates SspiAuthManager for current user.
-                                // This path means the main http_client might be proxied directly if NTLM is chosen but no creds.
                                 warn!(
-                                    "NTLM Auth selected for proxy {} but username/password missing. Client will use proxy directly, SSPI Manager (current user) created for potential later challenge handling if proxy allows initial pass-through.",
+                                    "NTLM Auth selected for proxy {} but username/password missing. Client will use proxy configured (if any basic/none was also set prior or if this is the only proxy config). SSPI Manager (current user) created for potential later challenge handling if proxy allows initial pass-through, assuming this is an http_client without proxy if only NTLM w/o creds.",
                                     proxy_url_str
                                 );
-                                let proxy = Proxy::all(proxy_url_str).map_err(|e| {
-                                    ResolveError::HttpProxy(format!(
-                                        "Failed to create fallback proxy for NTLM without creds from URL {}: {}",
-                                        proxy_url_str, e
-                                    ))
-                                })?;
-                                client_builder = client_builder.proxy(proxy); // This was in your original code
+                                // The main client_builder is NOT configured with a proxy here for SSPI if NTLM had no creds.
+                                // SSPI headers will be added. If the proxy required Basic and NTLM was chosen by mistake, it would fail.
                                 SspiAuthManager::new_current_user(host)?
                             }
                         };
                         sspi_auth_manager_opt = Some(manager);
-                        tracing::info!(
+                        info!(
                             "SSPI Auth Manager configured for proxy: {} with type: {:?}",
-                            proxy_url_str,
-                            proxy_auth_type
+                            proxy_url_str, proxy_auth_type
                         );
-                        // Note: If NTLM without creds path was taken, client_builder *is* proxied.
-                        // If NTLM with creds or WindowsAuth, client_builder is *not* proxied here, headers are added later.
                     }
                     #[cfg(not(windows))]
                     {
@@ -154,7 +249,6 @@ impl DohClientAdapter {
                             proxy_auth_type, proxy_url_str
                         );
                         warn!("{}", msg);
-                        // On non-Windows, client_builder remains unproxied for these types.
                     }
                 }
             }
@@ -271,7 +365,8 @@ impl DohClientAdapter {
     }
 
     #[instrument(skip_all, fields(doh_server = %url, q_name = %question_name))]
-    #[allow(clippy::never_loop)] // Loop is used for SSPI challenge-response on Windows
+    #[allow(clippy::never_loop)] // This allow is to acknowledge clippy's warning about the loop structure.
+    // The loop *is* intentional for the SSPI challenge-response mechanism.
     async fn execute_doh_request_internal(
         &self,
         query_bytes: Arc<Vec<u8>>,
@@ -282,11 +377,9 @@ impl DohClientAdapter {
     ) -> Result<DnsMessage, ResolveError> {
         const MAX_AUTH_ATTEMPTS: u8 = 3;
         let mut attempt = 0;
+
         #[cfg(windows)]
         let mut last_proxy_challenge: Option<String> = None;
-        // On non-Windows, last_proxy_challenge is not used, but we declare it to satisfy clippy if needed
-        #[cfg(not(windows))]
-        let _last_proxy_challenge: Option<String> = None;
 
         #[cfg(windows)]
         if is_proxied_request {
@@ -303,8 +396,7 @@ impl DohClientAdapter {
             }
         }
 
-        // This loop is primarily for the SSPI challenge-response mechanism.
-        // For other errors, it will typically exit on the first attempt.
+        // This loop is for SSPI challenge-response
         loop {
             attempt += 1;
             if attempt > MAX_AUTH_ATTEMPTS {
@@ -348,67 +440,53 @@ impl DohClientAdapter {
                             proxy_conf.authentication_type,
                             ProxyAuthenticationType::WindowsAuth | ProxyAuthenticationType::Ntlm
                         ) {
-                            // Only add SSPI headers if the main http_client was NOT configured with a proxy
-                            // for NTLM-no-creds case.
-                            let client_already_proxied_for_ntlm_no_creds =
-                                proxy_conf.authentication_type == ProxyAuthenticationType::Ntlm
-                                    && proxy_conf.username.is_none();
+                            // Check if the main client was already configured with a proxy (e.g., NTLM without creds fallback)
+                            // If so, SSPI headers might not be appropriate or might conflict.
+                            // For simplicity here, we assume if sspi_auth_manager exists, we try to use it for headers.
+                            let auth_header_opt_result = if attempt == 1 {
+                                self.handle_sspi_auth_initial().await
+                            } else if let Some(challenge) = last_proxy_challenge.as_deref() {
+                                self.handle_sspi_auth_challenge(challenge).await
+                            } else {
+                                // This state should ideally not be reached if the server adheres to typical challenge-response
+                                let err_msg = "SSPI: Attempting challenge response without a stored challenge header in execute_doh_request_internal".to_string();
+                                error!(target: "sspi_auth", "{}", err_msg);
+                                sspi_mgr.mark_failed(err_msg.clone()).await;
+                                return Err(ResolveError::HttpProxy(err_msg));
+                            };
 
-                            if !client_already_proxied_for_ntlm_no_creds {
-                                let auth_header_result = if attempt == 1 {
-                                    sspi_mgr.get_initial_token().await
-                                } else if let Some(challenge) = last_proxy_challenge.as_deref() {
-                                    sspi_mgr.get_challenge_response_token(challenge).await
-                                } else {
-                                    let err_msg = "SSPI: Attempting challenge response without a stored challenge header".to_string();
-                                    error!(target: "sspi_auth", "{}", err_msg);
-                                    sspi_mgr.mark_failed(err_msg.clone()).await;
-                                    return Err(ResolveError::HttpProxy(err_msg));
-                                };
-
-                                match auth_header_result {
-                                    Ok(token_str) if !token_str.is_empty() => {
-                                        match HeaderValue::from_str(&token_str) {
-                                            Ok(header_val) => {
-                                                current_request_builder = current_request_builder
-                                                    .header(PROXY_AUTHORIZATION, header_val);
-                                                debug!(
-                                                    "Attempt {}: Added SSPI Proxy-Authorization header for {}",
-                                                    attempt, url
-                                                );
-                                            }
-                                            Err(e) => {
-                                                let err_msg = format!(
-                                                    "Failed to create header value from SSPI token: {}",
-                                                    e
-                                                );
-                                                error!(target: "sspi_auth", "{}", err_msg);
-                                                sspi_mgr.mark_failed(err_msg.clone()).await;
-                                                return Err(ResolveError::HttpProxy(err_msg));
-                                            }
-                                        }
-                                    }
-                                    Ok(_) => {
-                                        /* Handle cases with empty token */
-                                        if sspi_mgr.is_authenticated().await {
+                            match auth_header_opt_result {
+                                Ok(Some(token_str)) if !token_str.is_empty() => {
+                                    match HeaderValue::from_str(&token_str) {
+                                        Ok(header_val) => {
+                                            current_request_builder = current_request_builder
+                                                .header(PROXY_AUTHORIZATION, header_val);
                                             debug!(
-                                                "Attempt {}: SSPI already authenticated, no new header for {}.",
-                                                attempt, url
-                                            );
-                                        } else if attempt > 1 {
-                                            warn!(
-                                                "Attempt {}: No SSPI token for challenge but not authenticated for {}.",
-                                                attempt, url
-                                            );
-                                        } else {
-                                            debug!(
-                                                "Attempt {}: No initial SSPI token for {}.",
+                                                "Attempt {}: Added SSPI Proxy-Authorization header for {}",
                                                 attempt, url
                                             );
                                         }
+                                        Err(e) => {
+                                            let err_msg = format!(
+                                                "Failed to create header value from SSPI token: {}",
+                                                e
+                                            );
+                                            error!(target: "sspi_auth", "{}", err_msg);
+                                            sspi_mgr.mark_failed(err_msg.clone()).await;
+                                            return Err(ResolveError::HttpProxy(err_msg));
+                                        }
                                     }
-                                    Err(e) => return Err(e),
                                 }
+                                Ok(_) => {
+                                    /* No token to add (e.g. already authenticated or no initial token) */
+                                    if sspi_mgr.is_authenticated().await {
+                                        debug!(
+                                            "Attempt {}: SSPI already authenticated for {}, no new header added.",
+                                            attempt, url
+                                        );
+                                    }
+                                }
+                                Err(e) => return Err(e), // Error during SSPI token generation
                             }
                         }
                     }
@@ -438,40 +516,34 @@ impl DohClientAdapter {
                                             | ProxyAuthenticationType::Ntlm
                                     )
                                 }) {
-                                    // Check if the main client was already proxied (NTLM no creds case)
-                                    let client_already_proxied_for_ntlm_no_creds =
-                                        self.proxy_config.as_ref().map_or(false, |pc| {
-                                            pc.authentication_type == ProxyAuthenticationType::Ntlm
-                                                && pc.username.is_none()
-                                        });
-
-                                    if !client_already_proxied_for_ntlm_no_creds {
-                                        // Only try SSPI challenge if client wasn't direct-proxied
-                                        if let Some(challenge) = response
-                                            .headers()
-                                            .get(PROXY_AUTHENTICATE)
-                                            .and_then(|h| h.to_str().ok())
-                                        {
-                                            debug!(
-                                                "Attempt {}: Received 407 challenge for {}: {}",
-                                                attempt, url, challenge
-                                            );
-                                            last_proxy_challenge = Some(challenge.to_string());
-                                            continue; // This is the key to make the loop work for SSPI
-                                        } else {
-                                            let err_msg = format!(
-                                                "Proxy sent 407 but no {} header for {}",
-                                                PROXY_AUTHENTICATE, url
-                                            );
-                                            error!("{}", err_msg);
-                                            sspi_mgr.mark_failed(err_msg.clone()).await;
-                                            return Err(ResolveError::HttpProxy(err_msg));
+                                    if let Some(challenge) = response
+                                        .headers()
+                                        .get(PROXY_AUTHENTICATE)
+                                        .and_then(|h| h.to_str().ok())
+                                    {
+                                        debug!(
+                                            "Attempt {}: Received 407 challenge for {}: {}",
+                                            attempt, url, challenge
+                                        );
+                                        last_proxy_challenge = Some(challenge.to_string());
+                                        if self.check_sspi_auth_failure().await.is_err() {
+                                            // Check if manager is already failed
+                                            return Err(ResolveError::AuthenticationFailed("SSPI manager in failed state before challenge retry".into()));
                                         }
+                                        continue; // Crucial: This makes the loop iterate for SSPI challenge
+                                    } else {
+                                        let err_msg = format!(
+                                            "Proxy sent 407 but no {} header for {}",
+                                            PROXY_AUTHENTICATE, url
+                                        );
+                                        error!("{}", err_msg);
+                                        sspi_mgr.mark_failed(err_msg.clone()).await;
+                                        return Err(ResolveError::HttpProxy(err_msg));
                                     }
                                 }
                             }
                         }
-                        // If not an SSPI challenge that can be retried, or not Windows, 407 is a terminal error.
+                        // If not an SSPI challenge that can be retried (e.g. Basic auth failed, or not on Windows)
                         return Err(ResolveError::HttpProxy(format!(
                             "Proxy authentication required (407) for {}",
                             url
@@ -491,7 +563,7 @@ impl DohClientAdapter {
                                 && status.is_success()
                             {
                                 warn!(
-                                    "SSPI auth was in progress for {}, received success status {} but SSPI state is not Authenticated. Proxy might not require full NTLM/Negotiate completion or there's a state mismatch.",
+                                    "SSPI auth was in progress for {}, received success status {} but SSPI state is not Authenticated.",
                                     url, status
                                 );
                             }
@@ -528,6 +600,7 @@ impl DohClientAdapter {
                     return parse_dns_message(&response_body_bytes).map_err(ResolveError::Protocol);
                 }
                 Ok(Err(e)) => {
+                    // reqwest::Error
                     warn!("DoH request to {} failed: {}", url, e);
                     #[cfg(windows)]
                     if is_proxied_request && (e.to_string().contains("proxy") || e.is_connect()) {
@@ -541,6 +614,7 @@ impl DohClientAdapter {
                     )));
                 }
                 Err(_timeout) => {
+                    // tokio::time::error::Elapsed
                     warn!(
                         "DoH request to {} timed out after {:?}",
                         url, request_timeout
@@ -1165,10 +1239,8 @@ mod integration_tests {
             )
             .await;
 
-        // The query should succeed (DNS protocol worked) but return no answers
         match result {
             Ok(response) => {
-                // Check that we got a valid DNS response but no useful answers
                 assert!(
                     response.answers().count() == 0
                         || response.response_code() == ResponseCode::NXDomain,
@@ -1176,7 +1248,6 @@ mod integration_tests {
                 );
             }
             Err(_) => {
-                // Network failures are also acceptable in test environments
                 println!("Network error occurred, which is acceptable in test environment");
             }
         }
@@ -1194,7 +1265,6 @@ mod integration_tests {
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        // Use a non-existent DoH server to force a network error
         let result = client
             .resolve_doh(
                 &question,
@@ -1209,10 +1279,8 @@ mod integration_tests {
             "Should fail when contacting non-existent server"
         );
 
-        // Check the error type
         match result.unwrap_err() {
             ResolveError::Network(msg) => {
-                // Expected network error
                 assert!(
                     msg.contains("failed") || msg.contains("connect") || msg.contains("resolve"),
                     "Network error should contain relevant error message, got: {}",
@@ -1220,7 +1288,6 @@ mod integration_tests {
                 );
             }
             ResolveError::Timeout { domain, .. } => {
-                // Timeout is also acceptable for non-existent servers
                 assert_eq!(
                     domain, "example.com",
                     "Timeout should reference the correct domain"
@@ -1242,12 +1309,11 @@ mod integration_tests {
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        // Use extremely short timeout to force timeout error
         let result = client
             .resolve_doh(
                 &question,
                 &[Url::parse("https://dns.google/dns-query").unwrap()],
-                Duration::from_millis(1), // Very short timeout
+                Duration::from_millis(1),
                 None,
             )
             .await;
@@ -1256,7 +1322,6 @@ mod integration_tests {
 
         match result.unwrap_err() {
             ResolveError::Timeout { domain, duration } => {
-                // Expected timeout error
                 assert_eq!(
                     domain, "example.com",
                     "Timeout should reference the correct domain"
@@ -1268,7 +1333,6 @@ mod integration_tests {
                 );
             }
             ResolveError::Network(msg) => {
-                // Network error is also acceptable for very short timeouts
                 assert!(
                     msg.contains("timeout") || msg.contains("failed") || msg.contains("connect"),
                     "Network error should contain relevant message, got: {}",
@@ -1302,23 +1366,17 @@ mod integration_tests {
 
         match result {
             Ok(response) => {
-                // Validate that we got a proper DNS response
                 assert_eq!(response.response_code(), ResponseCode::NoError);
-
-                // For example.com, we should typically get at least one answer
                 assert!(
                     response.answers().count() > 0,
                     "example.com should have at least one A record"
                 );
-
-                // Validate that the response has the correct question
                 let questions: Vec<_> = response.queries().collect();
                 assert_eq!(questions.len(), 1);
                 assert_eq!(questions[0].name().to_string(), "example.com.");
                 assert_eq!(questions[0].query_type(), RecordType::A);
             }
             Err(e) => {
-                // In CI/test environments, network errors might occur
                 println!("Network error occurred (acceptable in test env): {:?}", e);
             }
         }
@@ -1336,7 +1394,6 @@ mod integration_tests {
             class: hickory_proto::rr::DNSClass::IN,
         };
 
-        // Use a server that exists but doesn't serve DoH (like a regular HTTP server)
         let result = client
             .resolve_doh(
                 &question,
@@ -1352,20 +1409,15 @@ mod integration_tests {
         );
 
         match result.unwrap_err() {
-            ResolveError::Protocol(_) => {
-                // Expected - server returned invalid DNS message
-            }
+            ResolveError::Protocol(_) => {}
             ResolveError::UpstreamServer { details, .. } => {
-                // Also acceptable - server error (e.g., HTTP 200 but wrong content-type)
                 assert!(
                     details.contains("HTTP status") || details.contains("status"),
                     "Should be an HTTP status error, got: {}",
                     details
                 );
             }
-            ResolveError::Network(_) => {
-                // Network error is also possible
-            }
+            ResolveError::Network(_) => {}
             other => panic!("Unexpected error type: {:?}", other),
         }
     }

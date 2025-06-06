@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: fast-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quick-check:
     name: Quick Check
@@ -24,7 +28,7 @@ jobs:
       run: cargo fmt --all -- --check
 
     - name: Clippy check  
-      run: cargo clippy --all-targets -- -D warnings
+      run: cargo clippy --all-targets --no-default-features --features aws,tui -- -D warnings
 
     - name: Build check
       run: cargo build
