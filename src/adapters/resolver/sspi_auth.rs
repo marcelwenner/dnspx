@@ -632,7 +632,7 @@ mod tests {
     }
 
     #[tokio::test]
-    fn test_credential_validation_logic() {
+    async fn test_credential_validation_logic() {
         assert!(SspiAuthManager::validate_credentials("user", Some("DOMAIN")).is_ok());
         assert!(SspiAuthManager::validate_credentials("user", None).is_ok());
     }

@@ -111,7 +111,7 @@ jobs:
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     steps:
     - uses: actions/checkout@v4
     
@@ -142,17 +142,15 @@ jobs:
         cargo install cargo-machete
         cargo machete
 
-  # ===== MULTI-ARCH BUILDS =====
+  # ===== LINUX CROSS-ARCH BUILDS =====
   build-matrix:
-    name: Build Matrix
+    name: Build Matrix (Linux)
     runs-on: ubuntu-latest
     strategy:
       matrix:
         target:
           - x86_64-unknown-linux-gnu
-          - x86_64-pc-windows-gnu
           - aarch64-unknown-linux-gnu
-          - aarch64-pc-windows-msvc
     steps:
     - uses: actions/checkout@v4
     
@@ -187,6 +185,46 @@ jobs:
         fi
 
     - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dnspx-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/release/dnspx*
+          !target/${{ matrix.target }}/release/*.d
+
+  # ===== NATIVE WINDOWS BUILD =====
+  build-windows:
+    name: Build Windows (Native)
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-${{ matrix.target }}-
+          ${{ runner.os }}-cargo-build-
+
+    - name: Build for Windows target
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Upload Windows build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: dnspx-${{ matrix.target }}
@@ -238,7 +276,7 @@ jobs:
   release:
     name: Release Build
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    needs: [test, security]
+    needs: [test, security, build-matrix, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -255,28 +293,73 @@ jobs:
         cargo test --release test_bypass_
         cargo test --release test_doh_client_creation_performance
 
-    - name: Create release archive
+    - name: Download all build artifacts
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts/
+
+    - name: Create release archives
       if: startsWith(github.ref, 'refs/tags/')
       run: |
-        mkdir -p release
-        cp target/release/dnspx* release/
-        tar czf dnspx-linux-x64.tar.gz -C release .
+        mkdir -p releases
+        
+        # Linux x64
+        if [ -d "artifacts/dnspx-x86_64-unknown-linux-gnu" ]; then
+          cd artifacts/dnspx-x86_64-unknown-linux-gnu
+          tar czf ../../releases/dnspx-linux-x64.tar.gz dnspx
+          cd ../..
+        fi
+        
+        # Linux ARM64
+        if [ -d "artifacts/dnspx-aarch64-unknown-linux-gnu" ]; then
+          cd artifacts/dnspx-aarch64-unknown-linux-gnu
+          tar czf ../../releases/dnspx-linux-arm64.tar.gz dnspx
+          cd ../..
+        fi
+        
+        # Windows x64 (MSVC)
+        if [ -d "artifacts/dnspx-x86_64-pc-windows-msvc" ]; then
+          cd artifacts/dnspx-x86_64-pc-windows-msvc
+          zip ../../releases/dnspx-windows-x64.zip dnspx.exe
+          cd ../..
+        fi
+        
+        # Windows ARM64 (MSVC)
+        if [ -d "artifacts/dnspx-aarch64-pc-windows-msvc" ]; then
+          cd artifacts/dnspx-aarch64-pc-windows-msvc
+          zip ../../releases/dnspx-windows-arm64.zip dnspx.exe
+          cd ../..
+        fi
+        
+        # macOS Intel
+        if [ -d "artifacts/dnspx-x86_64-apple-darwin" ]; then
+          cd artifacts/dnspx-x86_64-apple-darwin
+          tar czf ../../releases/dnspx-macos-intel.tar.gz dnspx
+          cd ../..
+        fi
+        
+        # macOS Apple Silicon
+        if [ -d "artifacts/dnspx-aarch64-apple-darwin" ]; then
+          cd artifacts/dnspx-aarch64-apple-darwin
+          tar czf ../../releases/dnspx-macos-arm64.tar.gz dnspx
+          cd ../..
+        fi
+        
+        ls -la releases/
 
-    - name: Create GitHub Release
+    - name: Upload release archives as artifacts
       if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
+      uses: actions/upload-artifact@v4
       with:
-        files: dnspx-*.tar.gz
-        draft: true
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: release-archives
+        path: releases/*
 
   # ===== NOTIFICATIONS =====
   notify:
     name: Notifications
     if: always()
-    needs: [test, security, build-matrix, build-macos]
+    needs: [test, security, benchmark, dependencies, build-matrix, build-windows, build-macos, release]
     runs-on: ubuntu-latest
     steps:
     - name: Notify on success

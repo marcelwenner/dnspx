@@ -8,8 +8,16 @@ DNSPX is a configurable DNS proxy and resolver designed for local development an
 ![Version](https://img.shields.io/badge/version-0.9.0-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
-## ⚠️ AWS Integration Status
-AWS service discovery is implemented but not extensively tested in production environments. Please test thoroughly in your specific AWS setup before relying on it for critical workloads.
+## ⚠️ Production Readiness Notice
+
+### AWS Integration
+AWS service discovery is implemented but **not extensively tested in production environments**. Please test thoroughly in your specific AWS setup before relying on it for critical workloads.
+
+### Windows SSPI Authentication  
+Windows SSPI (proxy authentication) support is **experimental and not extensively tested in production**. Use with caution in enterprise environments and consider alternative authentication methods for production deployments.
+
+### Security
+For security considerations and known vulnerabilities, please see [SECURITY.md](SECURITY.md).
 
 ## 📸 Screenshots
 

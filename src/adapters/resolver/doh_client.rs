@@ -7,6 +7,9 @@ use reqwest::{
     Body, Client, Proxy, StatusCode,
     header::{ACCEPT, CONTENT_TYPE},
 };
+
+#[cfg(windows)]
+use reqwest::header::{HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +17,9 @@ use tracing::{debug, error, instrument, warn};
 use url::Url;
 
 #[cfg(windows)]
-use super::sspi_auth::SspiAuthManager; // SspiAuthState is not directly used here
+use super::sspi_auth::SspiAuthManager;
+#[cfg(not(windows))]
+use super::sspi_auth_mock::SspiAuthManager;
 
 const DOH_MEDIA_TYPE: &str = "application/dns-message";
 
@@ -22,7 +27,6 @@ pub(crate) struct DohClientAdapter {
     http_client: Client,
     proxy_config: Option<HttpProxyConfig>,
     default_timeout: Duration,
-    #[cfg(windows)]
     sspi_auth_manager: Option<SspiAuthManager>,
 }
 
@@ -42,6 +46,8 @@ impl DohClientAdapter {
 
         #[cfg(windows)]
         let mut sspi_auth_manager_opt: Option<SspiAuthManager> = None;
+        #[cfg(not(windows))]
+        let sspi_auth_manager_opt: Option<SspiAuthManager> = None;
 
         if let Some(ref proxy_conf) = global_proxy_config {
             let proxy_url_str = proxy_conf.url.as_str();
@@ -133,9 +139,10 @@ impl DohClientAdapter {
                             }
                         };
                         sspi_auth_manager_opt = Some(manager);
-                        info!(
+                        tracing::info!(
                             "SSPI Auth Manager configured for proxy: {} with type: {:?}",
-                            proxy_url_str, proxy_auth_type
+                            proxy_url_str,
+                            proxy_auth_type
                         );
                         // Note: If NTLM without creds path was taken, client_builder *is* proxied.
                         // If NTLM with creds or WindowsAuth, client_builder is *not* proxied here, headers are added later.
@@ -163,7 +170,6 @@ impl DohClientAdapter {
             http_client,
             proxy_config: global_proxy_config,
             default_timeout,
-            #[cfg(windows)]
             sspi_auth_manager: sspi_auth_manager_opt,
         })
     }
@@ -860,7 +866,7 @@ mod tests {
                 )
                 .await;
 
-            info!("WindowsAuth test result: {:?}", result);
+            tracing::info!("WindowsAuth test result: {:?}", result);
             assert!(
                 result.is_ok(),
                 "DoH with WindowsAuth should succeed if proxy and AD are correctly configured. Error: {:?}",
@@ -909,7 +915,7 @@ mod tests {
                 )
                 .await;
 
-            info!("NTLM (explicit creds) test result: {:?}", result);
+            tracing::info!("NTLM (explicit creds) test result: {:?}", result);
             assert!(
                 result.is_ok(),
                 "DoH with NTLM (explicit creds) should succeed if proxy and credentials are correct. Error: {:?}",
