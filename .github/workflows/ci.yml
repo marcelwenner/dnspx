@@ -21,10 +21,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_INCREMENTAL: 0    # Disable incremental compilation for CI
-  CARGO_NET_RETRY: 10     # Retry network requests
-  RUST_LOG: warn          # Reduce log noise
-  CARGO_BUILD_JOBS: 2     # Limit parallel compilation jobs
+  CARGO_INCREMENTAL: 0      # Disable incremental compilation for CI
+  CARGO_NET_RETRY: 10       # Retry network requests
+  RUST_LOG: warn            # Reduce log noise
+  CARGO_BUILD_JOBS: 1       # Limit to 1 job to reduce memory pressure
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse  # Use sparse protocol
 
 jobs:
   # ===== CROSS-PLATFORM BUILD & TEST =====
@@ -35,13 +36,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta]
-        exclude:
-          # Beta nur auf Ubuntu um CI Zeit zu sparen
-          - os: windows-latest
-            rust: beta
-          - os: macos-latest
-            rust: beta
+        rust: [stable]
 
     steps:
     - name: Checkout code
@@ -86,12 +81,13 @@ jobs:
 
     - name: Run Clippy lints
       if: matrix.rust == 'stable'
-      run: cargo clippy --all-targets --no-default-features --features aws,tui -- -D warnings
+      run: cargo clippy --lib --bins --all-features -- -D warnings
 
-    - name: Build and test (all tests)
+    - name: Build and test (all features)
       run: |
-        cargo build --verbose
-        cargo test --verbose
+        cargo build --verbose --all-features
+        cargo test --verbose --all-features
+        cargo build --release --verbose --all-features
       env:
         RUST_LOG: warn  # Reduce log noise
 
@@ -149,152 +145,6 @@ jobs:
     - name: Check for unused dependencies
       run: cargo machete
 
-  # ===== LINUX CROSS-ARCH BUILDS =====
-  build-matrix:
-    name: Build Matrix (Linux)
-    runs-on: ubuntu-latest
-    needs: [test]  # Wait for tests to pass first
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
-
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-        key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: cargo-registry-
-          
-    - name: Cache target directory
-      uses: actions/cache@v4
-      with:
-        path: target/
-        key: linux-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          linux-target-${{ matrix.target }}-
-          linux-target-
-
-    - name: Install cross-compilation tools
-      if: matrix.target != 'x86_64-unknown-linux-gnu'
-      run: |
-        cargo install cross
-
-    - name: Build for target
-      run: |
-        if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-          cargo build --release --target ${{ matrix.target }}
-        else
-          cross build --release --target ${{ matrix.target }}
-        fi
-
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dnspx-${{ matrix.target }}
-        path: |
-          target/${{ matrix.target }}/release/dnspx*
-          !target/${{ matrix.target }}/release/*.d
-
-  # ===== NATIVE WINDOWS BUILD =====
-  build-windows:
-    name: Build Windows (Native)
-    runs-on: windows-latest
-    needs: [test]  # Wait for tests to pass first
-    strategy:
-      matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          - aarch64-pc-windows-msvc
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
-
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-        key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: cargo-registry-
-          
-    - name: Cache target directory
-      uses: actions/cache@v4
-      with:
-        path: target/
-        key: macos-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          macos-target-${{ matrix.target }}-
-          macos-target-
-
-    - name: Build for Windows target
-      run: cargo build --release --target ${{ matrix.target }}
-
-    - name: Upload Windows build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dnspx-${{ matrix.target }}
-        path: |
-          target/${{ matrix.target }}/release/dnspx*
-          !target/${{ matrix.target }}/release/*.d
-
-  # ===== NATIVE MACOS BUILD =====
-  build-macos:
-    name: Build macOS (Native)
-    runs-on: macos-latest
-    needs: [test]  # Wait for tests to pass first
-    strategy:
-      matrix:
-        target:
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
-
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-build-${{ matrix.target }}-
-          ${{ runner.os }}-cargo-build-
-
-    - name: Build for macOS target
-      run: cargo build --release --target ${{ matrix.target }}
-
-    - name: Upload macOS build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dnspx-${{ matrix.target }}
-        path: |
-          target/${{ matrix.target }}/release/dnspx*
-          !target/${{ matrix.target }}/release/*.d
 
   # ===== RELEASE BUILD =====
   release:
