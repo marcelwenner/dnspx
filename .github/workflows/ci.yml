@@ -24,10 +24,6 @@ env:
   CARGO_INCREMENTAL: 0      # Disable for CI
   CARGO_NET_RETRY: 10
   RUST_LOG: warn
-  # sccache configuration für deutlich schnellere Builds
-  RUSTC_WRAPPER: sccache
-  SCCACHE_GHA_ENABLED: true
-  SCCACHE_CACHE_SIZE: 2G
   # Optimierte Build-Settings
   CARGO_BUILD_JOBS: 2       # Erhöht von 1 für bessere Parallelität
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -61,6 +57,20 @@ jobs:
     # sccache für zusätzliche Compiler-Geschwindigkeit
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@v0.0.9
+
+    # sccache env vars NACH der Installation setzen  
+    - name: Configure sccache
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+        echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
+
+    # sccache env vars NACH der Installation setzen
+    - name: Configure sccache
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+        echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
 
     - name: Get Rust version
       id: rust-info
@@ -114,6 +124,13 @@ jobs:
     # sccache für alle Platforms
     - name: Setup sccache  
       uses: mozilla-actions/sccache-action@v0.0.9
+
+    # sccache env vars NACH der Installation setzen
+    - name: Configure sccache
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+        echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
 
     # Parallele Build-Strategien je nach OS
     - name: Build and test
