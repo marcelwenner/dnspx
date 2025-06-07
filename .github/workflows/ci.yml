@@ -21,22 +21,77 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_INCREMENTAL: 0      # Disable incremental compilation for CI
-  CARGO_NET_RETRY: 10       # Retry network requests
-  RUST_LOG: warn            # Reduce log noise
-  CARGO_BUILD_JOBS: 1       # Limit to 1 job to reduce memory pressure
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse  # Use sparse protocol
+  CARGO_INCREMENTAL: 0      # Disable for CI
+  CARGO_NET_RETRY: 10
+  RUST_LOG: warn
+  # sccache configuration für deutlich schnellere Builds
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+  SCCACHE_CACHE_SIZE: 2G
+  # Optimierte Build-Settings
+  CARGO_BUILD_JOBS: 2       # Erhöht von 1 für bessere Parallelität
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
 jobs:
-  # ===== CROSS-PLATFORM BUILD & TEST =====
+  # ===== SCHNELLE CHECKS (parallel) =====
+  quick-checks:
+    name: Quick Checks
+    runs-on: ubuntu-latest
+    outputs:
+      rust-version: ${{ steps.rust-info.outputs.version }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    # Swatinem/rust-cache ist optimierter als manuelle Cache-Konfiguration
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        # Shared cache zwischen Jobs
+        shared-key: "quick-checks"
+        # Cache auch für unterschiedliche Targets
+        cache-targets: true
+        cache-on-failure: true
+
+    # sccache für zusätzliche Compiler-Geschwindigkeit
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.9
+
+    - name: Get Rust version
+      id: rust-info
+      run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+
+    - name: Check code formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy (nur warnings, schneller)
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    # Zusätzlicher schneller Check für Cargo.toml
+    - name: Check Cargo.toml
+      run: cargo check --workspace --all-targets
+
+  # ===== CROSS-PLATFORM BUILD & TEST (Matrix optimiert) =====
   test:
-    name: Test Suite
+    name: Test (${{ matrix.os }})
+    needs: quick-checks
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable]
+        include:
+          # Optimierte Matrix: Erst Linux (schnellste), dann andere
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest  
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
 
     steps:
     - name: Checkout code
@@ -45,53 +100,36 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ matrix.rust }}
-        components: rustfmt, clippy
+        targets: ${{ matrix.target }}
 
-    - name: Cache Rust toolchain
-      uses: actions/cache@v4
+    # Optimiertes Rust-Caching mit spezifischen Keys
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
       with:
-        path: |
-          ~/.rustup
-          ~/.cargo/bin
-        key: ${{ runner.os }}-rust-${{ matrix.rust }}
-        
-    - name: Cache cargo registry and builds
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-${{ matrix.rust }}-
-          ${{ runner.os }}-cargo-
-        
-    - name: Cache installed tools
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/bin/cargo-*
-        key: ${{ runner.os }}-cargo-tools
+        key: ${{ matrix.target }}
+        shared-key: "test-${{ matrix.os }}"
+        cache-targets: true
+        cache-on-failure: true
 
-    - name: Check code formatting
-      if: matrix.rust == 'stable'
-      run: cargo fmt --all -- --check
+    # sccache für alle Platforms
+    - name: Setup sccache  
+      uses: mozilla-actions/sccache-action@v0.0.9
 
-    - name: Run Clippy lints
-      if: matrix.rust == 'stable'
-      run: cargo clippy --bins --all-features -- -D warnings
-
-    - name: Build and test (all features)
+    # Parallele Build-Strategien je nach OS
+    - name: Build and test
       run: |
-        cargo build --verbose --all-features
-        cargo test --verbose --all-features
-        cargo build --release --verbose --all-features
+        # Schneller check erst, dann build
+        cargo check --target ${{ matrix.target }} --all-features
+        cargo build --target ${{ matrix.target }} --all-features
+        cargo test --target ${{ matrix.target }} --all-features
       env:
-        RUST_LOG: warn  # Reduce log noise
+        # OS-spezifische Optimierungen
+        CARGO_BUILD_JOBS: ${{ matrix.os == 'ubuntu-latest' && '4' || '2' }}
 
-  # ===== SECURITY & QUALITY CHECKS =====
+    - name: Show sccache stats
+      run: sccache --show-stats
+
+  # ===== SECURITY & QUALITY (parallel zu Tests) =====
   security:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -101,25 +139,20 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache cargo tools
+    # Kleinerer Cache nur für audit tools
+    - name: Cache audit tools
       uses: actions/cache@v4
       with:
         path: ~/.cargo/bin/cargo-audit
-        key: cargo-audit-${{ runner.os }}
+        key: audit-tools-${{ runner.os }}-v2
 
     - name: Install cargo-audit
-      run: |
-        if ! command -v cargo-audit &> /dev/null; then
-          cargo install --locked cargo-audit
-        fi
+      run: cargo install --locked cargo-audit
 
     - name: Run security audit
-      run: |
-        # Ignore known/documented vulnerabilities that are acceptable
-        cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+      run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
 
-
-  # ===== DEPENDENCY CHECK (only on main) =====
+  # ===== DEPENDENCY CHECK (optimiert für main branch) =====
   dependencies:
     name: Dependency Check
     runs-on: ubuntu-latest
@@ -130,51 +163,53 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache cargo tools
+    - name: Cache dependency tools
       uses: actions/cache@v4
       with:
         path: ~/.cargo/bin/cargo-machete
-        key: cargo-machete-${{ runner.os }}
+        key: dep-tools-${{ runner.os }}-v2
 
     - name: Install cargo-machete
-      run: |
-        if ! command -v cargo-machete &> /dev/null; then
-          cargo install --locked cargo-machete
-        fi
+      run: cargo install --locked cargo-machete
 
     - name: Check for unused dependencies
       run: cargo machete
 
-
-  # ===== RELEASE BUILD =====
+  # ===== OPTIMIERTE RELEASE BUILDS =====
   release:
-    name: Release Build
+    name: Release (${{ matrix.target }})
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     needs: [test, security]
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # Linux builds
+          # Optimierte Build-Matrix mit nativen Builds wo möglich
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             cross: false
+            archive: tar.gz
           - target: aarch64-unknown-linux-gnu  
             os: ubuntu-latest
             cross: true
-          # Windows builds (native)
+            archive: tar.gz
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             cross: false
+            archive: zip
           - target: aarch64-pc-windows-msvc
             os: windows-latest  
             cross: false
-          # macOS builds (native)
+            archive: zip
           - target: x86_64-apple-darwin
             os: macos-latest
             cross: false
+            archive: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
             cross: false
+            archive: tar.gz
+
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
@@ -184,29 +219,22 @@ jobs:
       with:
         targets: ${{ matrix.target }}
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
+    # Separater Cache für Release-Builds
+    - name: Setup Rust cache for release
+      uses: Swatinem/rust-cache@v2
       with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-        key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: cargo-registry-
-          
-    - name: Cache target directory
-      uses: actions/cache@v4
-      with:
-        path: target/
-        key: ${{ matrix.os }}-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ matrix.os }}-target-${{ matrix.target }}-
-          ${{ matrix.os }}-target-
+        key: release-${{ matrix.target }}
+        cache-targets: true
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.9
 
     - name: Install cross-compilation tools
       if: matrix.cross
-      run: cargo install cross
+      run: cargo install cross --git https://github.com/cross-rs/cross
 
+    # Optimierter Release-Build
     - name: Build release binary
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then
@@ -214,96 +242,68 @@ jobs:
         else
           cargo build --release --target ${{ matrix.target }}
         fi
+      env:
+        # Release-optimierte Settings
+        CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+        CARGO_PROFILE_RELEASE_LTO: fat
 
-    - name: Upload build artifacts
+    # Intelligentere Artifact-Behandlung
+    - name: Prepare release artifact
+      shell: bash
+      run: |
+        mkdir -p releases
+        cd target/${{ matrix.target }}/release/
+        
+        if [[ "${{ matrix.archive }}" == "zip" ]]; then
+          7z a ../../../releases/dnspx-${{ matrix.target }}.${{ matrix.archive }} dnspx.exe
+        else
+          tar czf ../../../releases/dnspx-${{ matrix.target }}.${{ matrix.archive }} dnspx
+        fi
+
+    - name: Upload release artifact
       uses: actions/upload-artifact@v4
       with:
         name: dnspx-${{ matrix.target }}
-        path: |
-          target/${{ matrix.target }}/release/dnspx*
-          !target/${{ matrix.target }}/release/*.d
+        path: releases/dnspx-${{ matrix.target }}.${{ matrix.archive }}
+        retention-days: 7
 
-    - name: Download all build artifacts
-      if: startsWith(github.ref, 'refs/tags/')
+  # ===== RELEASE ASSEMBLY (nur bei Tags) =====
+  assemble-release:
+    name: Assemble Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts/
 
-    - name: Create release archives
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        mkdir -p releases
-        
-        # Linux x64
-        if [ -d "artifacts/dnspx-x86_64-unknown-linux-gnu" ]; then
-          cd artifacts/dnspx-x86_64-unknown-linux-gnu
-          tar czf ../../releases/dnspx-linux-x64.tar.gz dnspx
-          cd ../..
-        fi
-        
-        # Linux ARM64
-        if [ -d "artifacts/dnspx-aarch64-unknown-linux-gnu" ]; then
-          cd artifacts/dnspx-aarch64-unknown-linux-gnu
-          tar czf ../../releases/dnspx-linux-arm64.tar.gz dnspx
-          cd ../..
-        fi
-        
-        # Windows x64 (MSVC)
-        if [ -d "artifacts/dnspx-x86_64-pc-windows-msvc" ]; then
-          cd artifacts/dnspx-x86_64-pc-windows-msvc
-          zip ../../releases/dnspx-windows-x64.zip dnspx.exe
-          cd ../..
-        fi
-        
-        # Windows ARM64 (MSVC)
-        if [ -d "artifacts/dnspx-aarch64-pc-windows-msvc" ]; then
-          cd artifacts/dnspx-aarch64-pc-windows-msvc
-          zip ../../releases/dnspx-windows-arm64.zip dnspx.exe
-          cd ../..
-        fi
-        
-        # macOS Intel
-        if [ -d "artifacts/dnspx-x86_64-apple-darwin" ]; then
-          cd artifacts/dnspx-x86_64-apple-darwin
-          tar czf ../../releases/dnspx-macos-intel.tar.gz dnspx
-          cd ../..
-        fi
-        
-        # macOS Apple Silicon
-        if [ -d "artifacts/dnspx-aarch64-apple-darwin" ]; then
-          cd artifacts/dnspx-aarch64-apple-darwin
-          tar czf ../../releases/dnspx-macos-arm64.tar.gz dnspx
-          cd ../..
-        fi
-        
-        ls -la releases/
-
-    - name: Upload release archives as artifacts
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: actions/upload-artifact@v4
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
       with:
-        name: release-archives
-        path: releases/*
+        files: artifacts/*/dnspx-*
+        draft: false
+        prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') }}
 
-  # ===== NOTIFICATIONS =====
+  # ===== STREAMLINED NOTIFICATIONS =====
   notify:
-    name: Notifications
+    name: Notifications  
     if: always()
-    needs: [test, security, dependencies, release]
+    needs: [quick-checks, test, security]
     runs-on: ubuntu-latest
     steps:
-    - name: Notify on success
-      if: needs.test.result == 'success' && needs.security.result == 'success'
+    - name: Report results
       run: |
-        echo "✅ All tests passed on all platforms!"
-        echo "🔒 Security audit passed"
-
-    - name: Notify on failure
-      if: needs.test.result == 'failure' || needs.security.result == 'failure'
-      run: |
-        echo "❌ CI Pipeline failed!"
-        echo "Test result: ${{ needs.test.result }}"
-        echo "Security result: ${{ needs.security.result }}"
-        exit 1
-
-# ===== ADDITIONAL WORKFLOW FILES =====
+        if [[ "${{ needs.test.result }}" == "success" && "${{ needs.security.result }}" == "success" ]]; then
+          echo "✅ CI Pipeline successful!"
+          echo "🚀 Quick checks: ${{ needs.quick-checks.result }}"
+          echo "🧪 Tests: ${{ needs.test.result }}" 
+          echo "🔒 Security: ${{ needs.security.result }}"
+        else
+          echo "❌ CI Pipeline failed!"
+          echo "Quick checks: ${{ needs.quick-checks.result }}"
+          echo "Tests: ${{ needs.test.result }}"
+          echo "Security: ${{ needs.security.result }}"
+          exit 1
+        fi
