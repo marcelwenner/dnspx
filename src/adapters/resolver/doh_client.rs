@@ -1,14 +1,11 @@
-#![allow(dead_code)] 
+#![allow(dead_code)]
 use crate::config::models::{HttpProxyConfig, ProxyAuthenticationType};
 use crate::core::error::ResolveError;
 use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
 use crate::ports::UpstreamResolver;
 use reqwest::{
-    Body,
-    Client,
-    Proxy,
-    StatusCode,
-    header::{ACCEPT, CONTENT_TYPE}, 
+    Body, Client, Proxy, StatusCode,
+    header::{ACCEPT, CONTENT_TYPE},
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,12 +13,10 @@ use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
-
 #[cfg(windows)]
 use super::sspi_auth::{SspiAuthManager, SspiAuthState};
 #[cfg(windows)]
 use reqwest::header::{HeaderValue, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION};
-
 
 #[cfg(not(windows))]
 mod sspi_auth_mock_client {
@@ -39,7 +34,7 @@ mod sspi_auth_mock_client {
     #[derive(Debug, Default)]
     pub(super) struct SspiAuthManager {
         pub(super) target_spn: String,
-    } 
+    }
     impl SspiAuthManager {
         pub(super) fn new(
             target_spn: String,
@@ -75,7 +70,7 @@ mod sspi_auth_mock_client {
     }
 }
 #[cfg(not(windows))]
-use sspi_auth_mock_client::SspiAuthManager; 
+use sspi_auth_mock_client::SspiAuthManager;
 
 const DOH_MEDIA_TYPE: &str = "application/dns-message";
 
@@ -137,7 +132,6 @@ impl DohClientAdapter {
                     client_builder = client_builder.proxy(proxy);
                 }
                 ProxyAuthenticationType::Ntlm | ProxyAuthenticationType::WindowsAuth => {
-                    
                     let host_res = proxy_conf.url.host_str().ok_or_else(|| {
                         ResolveError::Configuration(format!(
                             "Proxy URL for {:?} has no host",
@@ -146,7 +140,7 @@ impl DohClientAdapter {
                     });
                     match host_res {
                         Ok(host) => {
-                            #[cfg(windows)] 
+                            #[cfg(windows)]
                             {
                                 let manager = if proxy_auth_type
                                     == ProxyAuthenticationType::WindowsAuth
@@ -155,7 +149,6 @@ impl DohClientAdapter {
                                 } else if let (Some(user), Some(pass)) =
                                     (&proxy_conf.username, &proxy_conf.password)
                                 {
-                                    
                                     SspiAuthManager::new(
                                         host.to_string(),
                                         Some(user.clone()),
@@ -163,7 +156,6 @@ impl DohClientAdapter {
                                         proxy_conf.domain.clone(),
                                     )?
                                 } else {
-                                    
                                     warn!(
                                         "NTLM Auth for proxy {} selected without credentials. Attempting current user.",
                                         proxy_url_str
@@ -172,13 +164,13 @@ impl DohClientAdapter {
                                 };
                                 sspi_auth_manager_opt = Some(manager);
                             }
-                            #[cfg(not(windows))] 
+                            #[cfg(not(windows))]
                             {
                                 warn!(
                                     "SSPI (NTLM/WindowsAuth) for proxy {} is not supported on this platform.",
                                     proxy_url_str
                                 );
-                                
+
                                 sspi_auth_manager_opt =
                                     Some(SspiAuthManager::new_for_current_user(host.to_string())?);
                             }
@@ -203,10 +195,9 @@ impl DohClientAdapter {
                 }
             }
         } else {
-            
             #[cfg(not(windows))]
             {
-                sspi_auth_manager_opt = Some(SspiAuthManager::default()); 
+                sspi_auth_manager_opt = Some(SspiAuthManager::default());
             }
         }
 
@@ -319,7 +310,7 @@ impl DohClientAdapter {
     }
 
     #[instrument(skip_all, fields(doh_server = %url, q_name = %question_name))]
-    #[allow(clippy::never_loop)] 
+    #[allow(clippy::never_loop)]
     async fn execute_doh_request_internal(
         &self,
         query_bytes: Arc<Vec<u8>>,
@@ -349,7 +340,6 @@ impl DohClientAdapter {
         }
 
         loop {
-            
             attempt += 1;
             if attempt > MAX_AUTH_ATTEMPTS {
                 #[cfg(windows)]
@@ -377,7 +367,6 @@ impl DohClientAdapter {
                 )));
             }
 
-            
             #[cfg(windows)]
             let mut current_request_builder = self.http_client.post(url.clone());
             #[cfg(not(windows))]
@@ -487,7 +476,7 @@ impl DohClientAdapter {
                                                 msg
                                             )));
                                         }
-                                        continue; 
+                                        continue;
                                     } else {
                                         let err_msg = format!(
                                             "Proxy sent 407 but no {} header for {}",
@@ -1505,7 +1494,7 @@ mod integration_tests {
 #[cfg(windows)]
 #[cfg(test)]
 mod sspi_integration_tests {
-    use super::*; 
+    use super::*;
 
     #[tokio::test]
     async fn test_sspi_state_transitions() {
@@ -1518,7 +1507,6 @@ mod sspi_integration_tests {
         ));
         assert!(!manager.is_authenticated().await);
 
-        
         let _ = manager.get_initial_token().await;
         if !matches!(manager.get_auth_state().await, SspiAuthState::Failed(_)) {
             assert!(matches!(
