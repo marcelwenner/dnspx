@@ -309,8 +309,8 @@ impl DohClientAdapter {
         }
     }
 
+    #[allow(clippy::never_loop, unused_mut, unused_variables)]
     #[instrument(skip_all, fields(doh_server = %url, q_name = %question_name))]
-    #[allow(clippy::never_loop)]
     async fn execute_doh_request_internal(
         &self,
         query_bytes: Arc<Vec<u8>>,
@@ -323,21 +323,6 @@ impl DohClientAdapter {
         let mut attempt = 0;
         #[cfg(windows)]
         let mut last_proxy_challenge: Option<String> = None;
-
-        #[cfg(windows)]
-        if is_proxied_request {
-            if let Some(sspi_mgr) = &self.sspi_auth_manager {
-                if self.proxy_config.as_ref().map_or(false, |pc| {
-                    matches!(
-                        pc.authentication_type,
-                        ProxyAuthenticationType::WindowsAuth | ProxyAuthenticationType::Ntlm
-                    )
-                }) {
-                    sspi_mgr.reset().await;
-                    debug!("SSPI auth manager reset for new DoH request to {}", url);
-                }
-            }
-        }
 
         loop {
             attempt += 1;
@@ -368,17 +353,23 @@ impl DohClientAdapter {
             }
 
             #[cfg(windows)]
-            let mut current_request_builder = self.http_client.post(url.clone());
-            #[cfg(not(windows))]
-            let current_request_builder = self.http_client.post(url.clone());
-
-            let current_request_builder = current_request_builder
+            let mut current_request_builder = self
+                .http_client
+                .post(url.clone())
                 .header(CONTENT_TYPE, DOH_MEDIA_TYPE)
                 .header(ACCEPT, DOH_MEDIA_TYPE)
                 .body(Body::from((*query_bytes).clone()));
 
-            if is_proxied_request {
-                #[cfg(windows)]
+            #[cfg(not(windows))]
+            let current_request_builder = self
+                .http_client
+                .post(url.clone())
+                .header(CONTENT_TYPE, DOH_MEDIA_TYPE)
+                .header(ACCEPT, DOH_MEDIA_TYPE)
+                .body(Body::from((*query_bytes).clone()));
+
+            #[cfg(windows)]
+            let current_request_builder = if is_proxied_request {
                 if let Some(proxy_conf) = &self.proxy_config {
                     if matches!(
                         proxy_conf.authentication_type,
@@ -390,7 +381,7 @@ impl DohClientAdapter {
                             } else if let Some(challenge) = last_proxy_challenge.as_deref() {
                                 sspi_mgr.get_challenge_response_token(challenge).await
                             } else {
-                                let err_msg = "SSPI: Attempting challenge response without a stored challenge header".to_string();
+                                let err_msg = "SSPI: Attempting challenge response without stored challenge header".to_string();
                                 error!(target: "sspi_auth", "{}", err_msg);
                                 sspi_mgr.mark_failed(err_msg.clone()).await;
                                 return Err(ResolveError::HttpProxy(err_msg));
@@ -400,12 +391,12 @@ impl DohClientAdapter {
                                 Ok(token_str) if !token_str.is_empty() => {
                                     match HeaderValue::from_str(&token_str) {
                                         Ok(header_val) => {
-                                            current_request_builder = current_request_builder
-                                                .header(PROXY_AUTHORIZATION, header_val);
                                             debug!(
                                                 "Attempt {}: Added SSPI Proxy-Authorization header for {}",
                                                 attempt, url
                                             );
+                                            current_request_builder
+                                                .header(PROXY_AUTHORIZATION, header_val)
                                         }
                                         Err(e) => {
                                             let err_msg = format!(
@@ -421,21 +412,31 @@ impl DohClientAdapter {
                                 Ok(_) => {
                                     if sspi_mgr.is_authenticated().await {
                                         debug!(
-                                            "Attempt {}: SSPI authenticated, no new header for {}.",
+                                            "Attempt {}: SSPI already authenticated for {}, no new header added.",
                                             attempt, url
                                         );
                                     }
+                                    current_request_builder // Unverändert
                                 }
                                 Err(e) => return Err(e),
                             }
+                        } else {
+                            current_request_builder
                         }
+                    } else {
+                        current_request_builder
                     }
+                } else {
+                    current_request_builder
                 }
-            }
+            } else {
+                current_request_builder
+            };
 
             let final_request = current_request_builder.build().map_err(|e| {
                 ResolveError::HttpProxy(format!("Failed to build DoH request: {}", e))
             })?;
+
             let response_result =
                 tokio::time::timeout(request_timeout, self.http_client.execute(final_request))
                     .await;
@@ -443,6 +444,7 @@ impl DohClientAdapter {
             match response_result {
                 Ok(Ok(response)) => {
                     let status = response.status();
+
                     if status == StatusCode::PROXY_AUTHENTICATION_REQUIRED {
                         #[cfg(windows)]
                         if is_proxied_request {
@@ -468,7 +470,7 @@ impl DohClientAdapter {
                                             sspi_mgr.get_auth_state().await
                                         {
                                             error!(
-                                                "SSPI manager in failed state before retry: {}",
+                                                "SSPI manager is in failed state before retry: {}",
                                                 msg
                                             );
                                             return Err(ResolveError::HttpProxy(format!(
@@ -495,26 +497,6 @@ impl DohClientAdapter {
                         )));
                     }
 
-                    #[cfg(windows)]
-                    if is_proxied_request {
-                        if let Some(sspi_mgr) = &self.sspi_auth_manager {
-                            if self.proxy_config.as_ref().map_or(false, |pc| {
-                                matches!(
-                                    pc.authentication_type,
-                                    ProxyAuthenticationType::WindowsAuth
-                                        | ProxyAuthenticationType::Ntlm
-                                )
-                            }) && !sspi_mgr.is_authenticated().await
-                                && status.is_success()
-                            {
-                                warn!(
-                                    "SSPI auth was in progress for {}, received success status {} but SSPI state is not Authenticated.",
-                                    url, status
-                                );
-                            }
-                        }
-                    }
-
                     if !status.is_success() {
                         let body_text = response
                             .text()
@@ -536,6 +518,7 @@ impl DohClientAdapter {
                             url, e
                         ))
                     })?;
+
                     debug!(
                         "Received {} bytes via DoH from {}",
                         response_body_bytes.len(),

@@ -105,19 +105,19 @@ impl SspiAuthManager {
         if creds_handle_guard.is_none() {
             let mut sspi_client_locked = self.sspi_client.lock().await;
 
-            let builder = sspi_client_locked
+            let mut builder = sspi_client_locked
                 .acquire_credentials_handle()
                 .with_credential_use(CredentialUse::Outbound);
 
-            let final_builder = if let Some(identity) = self.create_auth_identity() {
+            if let Some(identity) = self.create_auth_identity() {
                 debug!(target: "sspi_auth", spn = %self.target_spn, "Acquiring NTLM credentials with explicit identity");
-                builder.with_auth_data(&identity)
+                builder = builder.with_auth_data(&identity);
             } else {
                 debug!(target: "sspi_auth", spn = %self.target_spn, "Acquiring NTLM credentials for current user");
-                builder
-            };
+            }
 
-            let acq_result = final_builder.resolve(&mut *sspi_client_locked).map_err(|e| {
+            // WICHTIG: execute() statt resolve()!
+            let acq_result = builder.execute(&mut *sspi_client_locked).map_err(|e| {
                 error!(target: "sspi_auth", spn = %self.target_spn, error = %e, "Failed to acquire NTLM credentials");
                 ResolveError::HttpProxy(format!("Failed to acquire NTLM credentials handle: {}", e))
             })?;
@@ -150,8 +150,9 @@ impl SspiAuthManager {
             .with_target_name(&self.target_spn)
             .with_output(&mut output_buffers);
 
+        // WICHTIG: execute() statt resolve()!
         let result = init_builder
-            .resolve(&mut *sspi_client_locked)
+            .execute(&mut *sspi_client_locked)
             .map_err(|e| {
                 ResolveError::HttpProxy(format!(
                     "Failed to initialize NTLM security context: {}",
@@ -165,7 +166,7 @@ impl SspiAuthManager {
             SecurityStatus::ContinueNeeded | SecurityStatus::Ok => {
                 let b64_token = BASE64_STANDARD.encode(&token);
                 self.set_auth_state(SspiAuthState::NegotiateSent).await;
-                debug!(target: "sspi_auth", spn = %self.target_spn, "Generated initial NTLM token ({} bytes), state: NegotiateSent", token.len());
+                debug!(target: "sspi_auth", spn = %self.target_spn, "Generated initial NTLM token ({} bytes)", token.len());
                 Ok(format!("Negotiate {}", b64_token))
             }
             _ => {
@@ -233,7 +234,8 @@ impl SspiAuthManager {
                     .with_target_data_representation(DataRepresentation::Native)
                     .with_target_name(&self.target_spn);
 
-                let result = builder.resolve(&mut *sspi_client_locked).map_err(|e| {
+                // WICHTIG: execute() statt resolve()!
+                let result = builder.execute(&mut *sspi_client_locked).map_err(|e| {
                     ResolveError::HttpProxy(format!("NTLM challenge response failed: {}", e))
                 })?;
 
@@ -242,7 +244,7 @@ impl SspiAuthManager {
                 match result.status {
                     SecurityStatus::Ok => {
                         self.set_auth_state(SspiAuthState::Authenticated).await;
-                        debug!(target: "sspi_auth", spn = %self.target_spn, "NTLM authentication successful after challenge.");
+                        debug!(target: "sspi_auth", spn = %self.target_spn, "NTLM authentication successful");
                         if !response_token_bytes.is_empty() {
                             let b64_response = BASE64_STANDARD.encode(&response_token_bytes);
                             Ok(format!("Negotiate {}", b64_response))
@@ -252,7 +254,6 @@ impl SspiAuthManager {
                     }
                     SecurityStatus::ContinueNeeded => {
                         self.set_auth_state(SspiAuthState::ChallengeReceived).await;
-                        debug!(target: "sspi_auth", spn = %self.target_spn, "NTLM authentication ContinueNeeded after challenge.");
                         if response_token_bytes.is_empty() {
                             let err_msg = "NTLM: ContinueNeeded but empty token after challenge";
                             self.mark_failed(err_msg.to_string()).await;
