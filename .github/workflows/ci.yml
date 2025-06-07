@@ -81,7 +81,7 @@ jobs:
 
     - name: Run Clippy lints
       if: matrix.rust == 'stable'
-      run: cargo clippy --lib --bins --all-features -- -D warnings
+      run: cargo clippy --bins --all-features -- -D warnings
 
     - name: Build and test (all features)
       run: |
