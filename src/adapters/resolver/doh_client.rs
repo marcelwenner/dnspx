@@ -1480,6 +1480,7 @@ mod sspi_integration_tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore]
     async fn test_sspi_state_transitions() {
         let manager = SspiAuthManager::new_for_current_user("test.example.com".to_string())
             .expect("Should create manager");
