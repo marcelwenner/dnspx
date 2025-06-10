@@ -280,19 +280,25 @@ jobs:
     # Security checks
     - name: Audit dependencies
       run: |
-        echo "::group::Cargo Audit"
-        echo "🔍 Security Audit with documented exceptions:"
-        echo "   - RUSTSEC-2023-0071: RSA Marvin Attack (Windows SSPI only, see SECURITY.md)"
-        echo "   - RUSTSEC-2024-0436: paste crate unmaintained (no alternatives available)"
-        echo "   - Full rationale documented in SECURITY.md"
-        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436 --format json > audit-results.json || true
-        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
-        echo "::endgroup::"
-
-    - name: Check licenses and advisories
-      run: |
-        echo "::group::Cargo Deny"
+        echo "::group::Cargo Deny - Comprehensive Security & Compliance"
+        echo "🔍 Checking:"
+        echo "   ✅ Security vulnerabilities (RUSTSEC advisories)"
+        echo "   ✅ License compliance"
+        echo "   ✅ Banned dependencies"
+        echo "   ✅ Multiple versions"
+        echo "   ✅ Source validation"
+        echo ""
+        echo "📋 Documented exceptions in deny.toml:"
+        echo "   - RUSTSEC-2023-0071: RSA Marvin Attack (Windows SSPI only)"
+        echo "   - RUSTSEC-2021-0145: atty unaligned read (inquire dependency)"
+        echo "   - RUSTSEC-2024-0375: atty unmaintained (inquire dependency)"
+        echo "   - RUSTSEC-2024-0436: paste crate unmaintained (ratatui dependency)"
+        echo ""
+        
+        # Create results file (ignore exit code for JSON output)
         cargo deny check --format json > deny-results.json || true
+        
+        # Run actual check with proper exit codes
         cargo deny check
         echo "::endgroup::"
 
@@ -301,9 +307,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: security-results
-        path: |
-          audit-results.json
-          deny-results.json
+        path: deny-results.json
         retention-days: 30
 
   # ===== DEPENDENCY ANALYSIS =====

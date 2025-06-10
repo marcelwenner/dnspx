@@ -29,6 +29,7 @@ ignore = [
     "RUSTSEC-2023-0071",  # RSA Marvin Attack - Windows SSPI nur, dokumentierte Mitigationen
     "RUSTSEC-2021-0145",  # atty unaligned read - using inquire dependency, no safe upgrade
     "RUSTSEC-2024-0375",  # atty unmaintained - using inquire dependency, no safe upgrade
+    "RUSTSEC-2024-0436",  # paste unmaintained - using ratatui dependency, no alternatives
 ]
 
 # ===== LICENSES =====
