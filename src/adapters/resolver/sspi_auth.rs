@@ -157,6 +157,13 @@ impl SspiAuthManager {
                     "Failed to initialize NTLM security context: {}",
                     e
                 ))
+            })?
+            .resolve_to_result()
+            .map_err(|e| {
+                ResolveError::HttpProxy(format!(
+                    "Failed to initialize NTLM security context: {}",
+                    e
+                ))
             })?;
 
         let token = output_buffers[0].buffer.to_vec();
@@ -235,6 +242,10 @@ impl SspiAuthManager {
 
                 let result = sspi_client_locked
                     .initialize_security_context_impl(&mut builder)
+                    .map_err(|e| {
+                        ResolveError::HttpProxy(format!("NTLM challenge response failed: {}", e))
+                    })?
+                    .resolve_to_result()
                     .map_err(|e| {
                         ResolveError::HttpProxy(format!("NTLM challenge response failed: {}", e))
                     })?;
