@@ -1,0 +1,98 @@
+# deny.toml - Dependency security and license configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc", 
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+all-features = true
+
+[output]
+feature-depth = 1
+
+# ===== ADVISORIES (Security Vulnerabilities) =====
+[advisories]
+# Database sources
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Unmaintained crates behavior
+unmaintained = "workspace"  # Optionen: "all", "workspace", "transitive", "none"
+
+# Ignore specific advisories (bewusste Entscheidungen dokumentiert in SECURITY.md)
+ignore = [
+    "RUSTSEC-2023-0071",  # RSA Marvin Attack - Windows SSPI nur, dokumentierte Mitigationen
+    "RUSTSEC-2024-0436",  # paste crate unmaintained - keine Alternativen verfügbar
+]
+
+# ===== LICENSES =====
+# Nach PR#611: unlicensed/copyleft/allow-osi-fsf-free sind entfernt
+# Jetzt nur noch "allow" und "exceptions" - alles andere wird automatisch denied
+[licenses]
+# Allowed licenses (SPDX identifiers)
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause", 
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Unlicense",
+]
+
+# Additional confidence threshold for license detection
+confidence-threshold = 0.8
+
+# Exceptions for specific crates
+[[licenses.exceptions]]
+allow = ["Unicode-DFS-2016"]
+name = "unicode-ident"
+
+[[licenses.exceptions]]
+allow = ["OpenSSL"]
+name = "ring"
+
+# ===== BANS =====
+[bans]
+# Action when banned crates are found
+multiple-versions = "warn"    # Warn about multiple versions
+wildcards = "allow"           # Allow wildcard dependencies in dev-deps
+highlight = "all"            # Highlight all duplicate versions
+
+# Skip certain crates for duplicate version checks
+skip = [
+    { name = "windows-sys" },     # Many Windows crates use different versions
+    { name = "windows_x86_64_msvc" },
+    { name = "windows_aarch64_msvc" },
+]
+
+# Specific version skips
+skip-tree = [
+    { name = "windows-sys", version = "0.48" },
+    { name = "windows-sys", version = "0.52" },
+]
+
+# Banned crates (security/quality reasons)
+deny = [
+    # { name = "openssl", reason = "Use rustls instead" },
+    # { name = "git2", reason = "Large dependency, prefer alternatives" },
+]
+
+# ===== SOURCES =====
+[sources]
+# Action for unknown registries
+unknown-registry = "warn"
+unknown-git = "warn"
+
+# Allowed registries
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Allowed Git sources (for development/patches)
+allow-git = [
+    "https://github.com/cross-rs/cross",  # Cross-compilation tool
+]

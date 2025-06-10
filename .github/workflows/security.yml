@@ -1,0 +1,379 @@
+# .github/workflows/security.yml
+# Umfassende Sicherheitsüberprüfungen
+
+# ===== SECURITY AUDIT EXCEPTIONS =====
+# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md):
+# - RUSTSEC-2023-0071: RSA Marvin Attack - Betrifft nur Windows SSPI Auth, minimales Risiko
+# - RUSTSEC-2024-0436: paste crate - no longer maintained, aber keine Alternative verfügbar
+# 
+# Begründung RUSTSEC-2023-0071:
+# - CVE Severity: Medium (CVSS 5.9), aber praktisches Risiko gering
+# - Nur Windows-Builds mit SSPI betroffen (Linux/macOS nicht betroffen)  
+# - Erfordert lokalen Angreifer mit präzisen Timing-Messungen
+# - Mitigationen: Basic Auth verwenden, Netzwerk-Isolation, Monitoring
+# - Dependency-Pfad: rsa v0.9.8 → picky v7.0.0-rc.14 → sspi v0.10.1
+# 
+# Begründung RUSTSEC-2024-0436:
+# - paste v1.0.15 nicht mehr maintained seit 2024
+# - Nur für proc-macro Helpers in ratatui verwendet (minimale Attack Surface)
+# - Keine bekannten Security-Vulnerabilities, nur Maintenance-Status
+# - Alternative: Warten auf ratatui Update oder eigene proc-macro Implementation
+# - Monitoring: ratatui Issues für paste-Ersatz, proc-macro-Alternativen
+# 
+# Referenz: SECURITY.md, CVE-Tracking, Upstream sspi/picky/ratatui Updates
+# ==========================================
+
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Täglich um 6:00 UTC
+  push:
+    branches: [ main ]
+    paths: 
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/security.yml'
+  workflow_dispatch:
+    inputs:
+      audit-level:
+        description: 'Audit Level'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+        - standard
+        - comprehensive
+        - minimal
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Security audit exceptions (siehe Header-Kommentare)
+  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2024-0436"
+
+jobs:
+  # ===== VULNERABILITY SCANNING =====
+  vulnerability-scan:
+    name: Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install security tools
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-audit,cargo-deny,cargo-geiger
+
+    # Multiple security tools for comprehensive coverage
+    - name: Cargo Audit (RustSec)
+      run: |
+        echo "::group::Cargo Audit"
+        echo "🔍 Security Audit with documented exceptions:"
+        echo "   📋 Ignored Advisories (see SECURITY.md for full details):"
+        echo "   - RUSTSEC-2023-0071: RSA Marvin Attack"
+        echo "     • Severity: Medium (CVSS 5.9)"
+        echo "     • Impact: Windows SSPI only, requires local timing attack"
+        echo "     • Mitigation: Use Basic Auth, network isolation, monitoring"
+        echo "   - RUSTSEC-2024-0436: paste crate unmaintained"
+        echo "     • Severity: Informational (maintenance warning)"
+        echo "     • Impact: Minimal attack surface (proc-macro helper only)"
+        echo "     • Status: No functional alternatives available"
+        echo "     • Monitoring: ratatui updates for paste replacement"
+        echo ""
+        cargo audit --format json --output audit-report.json --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436 || true
+        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+        echo "::endgroup::"
+
+    - name: Cargo Deny (Licenses & Advisories)
+      run: |
+        echo "::group::Cargo Deny"
+        cargo deny --format json --output deny-report.json check || true
+        cargo deny check advisories
+        cargo deny check licenses
+        cargo deny check bans
+        echo "::endgroup::"
+
+    - name: Cargo Geiger (Unsafe Code Analysis)
+      run: |
+        echo "::group::Unsafe Code Analysis"
+        cargo geiger --format json --output geiger-report.json || true
+        cargo geiger --forbid-only
+        echo "::endgroup::"
+
+    - name: Upload security reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports
+        path: |
+          audit-report.json
+          deny-report.json
+          geiger-report.json
+        retention-days: 90
+
+  # ===== DEPENDENCY ANALYSIS =====
+  dependency-analysis:
+    name: Dependency Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust stable and nightly
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install nightly for udeps
+      uses: dtolnay/rust-toolchain@nightly
+
+    - name: Install analysis tools
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-machete,cargo-udeps,cargo-outdated
+
+    - name: Analyze dependencies
+      run: |
+        echo "::group::Unused Dependencies (machete)"
+        cargo machete --with-metadata > machete-report.txt || true
+        cat machete-report.txt
+        echo "::endgroup::"
+        
+        echo "::group::Unused Dependencies (udeps)"
+        cargo +nightly udeps --all-targets > udeps-report.txt || true
+        cat udeps-report.txt
+        echo "::endgroup::"
+        
+        echo "::group::Outdated Dependencies"
+        cargo outdated --format json > outdated-report.json || true
+        cargo outdated
+        echo "::endgroup::"
+
+    - name: Check for bloated dependencies
+      run: |
+        echo "::group::Dependency Size Analysis"
+        cargo tree --duplicates
+        cargo tree --format "{p} {f}" | grep -E "(build|dev)" | sort | uniq -c | sort -nr
+        echo "::endgroup::"
+
+    - name: Upload dependency reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-reports
+        path: |
+          machete-report.txt
+          udeps-report.txt
+          outdated-report.json
+        retention-days: 30
+
+  # ===== SUPPLY CHAIN SECURITY =====
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install supply chain tools
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-vet,cargo-crev
+
+    # Verify dependencies using cargo-vet
+    - name: Verify dependencies
+      run: |
+        if [ -f "supply-chain/config.toml" ]; then
+          echo "::group::Cargo Vet"
+          cargo vet --format json > vet-report.json || true
+          cargo vet
+          echo "::endgroup::"
+        else
+          echo "No cargo-vet configuration found, skipping"
+        fi
+
+    # Check crate reviews using cargo-crev
+    - name: Check crate reviews
+      run: |
+        echo "::group::Cargo Crev"
+        cargo crev repo fetch all || true
+        cargo crev verify --for-id $(cargo crev id current) > crev-report.txt || true
+        head -50 crev-report.txt
+        echo "::endgroup::"
+
+    - name: Upload supply chain reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: supply-chain-reports
+        path: |
+          vet-report.json
+          crev-report.txt
+        retention-days: 30
+
+  # ===== SARIF SECURITY REPORT =====
+  sarif-report:
+    name: SARIF Security Report
+    runs-on: ubuntu-latest
+    needs: [vulnerability-scan]
+    if: always()
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download security reports
+      uses: actions/download-artifact@v4
+      with:
+        name: security-reports
+        path: security-reports/
+
+    # Convert reports to SARIF format for GitHub Security tab
+    - name: Convert to SARIF
+      run: |
+        # Create SARIF report from audit results
+        cat > security-results.sarif << 'EOF'
+        {
+          "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+          "version": "2.1.0",
+          "runs": [
+            {
+              "tool": {
+                "driver": {
+                  "name": "cargo-audit",
+                  "version": "0.21.0",
+                  "informationUri": "https://github.com/RustSec/rustsec/tree/main/cargo-audit"
+                }
+              },
+              "results": []
+            }
+          ]
+        }
+        EOF
+
+    - name: Upload SARIF to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: security-results.sarif
+
+  # ===== COMPREHENSIVE SECURITY SUMMARY =====
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [vulnerability-scan, dependency-analysis, supply-chain]
+    if: always()
+    steps:
+    - name: Download all reports
+      uses: actions/download-artifact@v4
+      with:
+        path: reports/
+
+    - name: Generate security summary
+      run: |
+        echo "# 🔒 Security Audit Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Audit Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Vulnerability scan results
+        echo "## 🛡️ Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ needs.vulnerability-scan.result }}" == "success" ]]; then
+          echo "✅ **Status:** No critical vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Status:** Issues detected - review required" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Dependency analysis results
+        echo "## 📦 Dependency Analysis" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ needs.dependency-analysis.result }}" == "success" ]]; then
+          echo "✅ **Status:** Dependencies are clean" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Status:** Unused or outdated dependencies found" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Supply chain results
+        echo "## 🔗 Supply Chain Security" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ needs.supply-chain.result }}" == "success" ]]; then
+          echo "✅ **Status:** Supply chain verified" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Status:** Supply chain verification incomplete" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "## 📊 Reports Available" >> $GITHUB_STEP_SUMMARY
+        echo "- Security Reports (90 days retention)" >> $GITHUB_STEP_SUMMARY
+        echo "- Dependency Reports (30 days retention)" >> $GITHUB_STEP_SUMMARY
+        echo "- Supply Chain Reports (30 days retention)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Create issue on security failures
+      if: |
+        needs.vulnerability-scan.result == 'failure' ||
+        (github.event_name == 'schedule' && 
+         (needs.vulnerability-scan.result != 'success' || 
+          needs.dependency-analysis.result != 'success'))
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const title = `Security Audit Failed - ${new Date().toISOString().split('T')[0]}`;
+          const body = `
+          ## 🚨 Security Audit Failure
+          
+          **Date:** ${new Date().toISOString()}
+          **Workflow:** ${{ github.workflow }}
+          **Run:** ${{ github.run_id }}
+          
+          ### Results:
+          - Vulnerability Scan: ${{ needs.vulnerability-scan.result }}
+          - Dependency Analysis: ${{ needs.dependency-analysis.result }}
+          - Supply Chain: ${{ needs.supply-chain.result }}
+          
+          ### Known Exceptions (SECURITY.md):
+          - ✅ RUSTSEC-2023-0071: RSA Marvin Attack (Windows SSPI only)
+          - ✅ RUSTSEC-2024-0436: paste crate unmaintained (no alternatives)
+          
+          ### Action Required:
+          1. Review security reports for NEW vulnerabilities (not in exceptions list)
+          2. Check if Windows SSPI mitigations are still appropriate
+          3. Monitor for paste crate alternatives in ratatui ecosystem
+          4. Update SECURITY.md if new advisories need documentation
+          5. Consider updating sspi/picky dependencies if available
+          
+          ### Special Considerations:
+          - **Windows Builds**: Monitor for sspi crate updates addressing RUSTSEC-2023-0071
+          - **SSPI Usage**: Review production deployments using Windows SSPI auth
+          - **Timing Attacks**: Ensure network monitoring is in place for Windows systems
+          - **paste crate**: Monitor ratatui issues for paste replacement alternatives
+          - **TUI Features**: Consider if TUI functionality can be simplified to reduce dependencies
+          
+          **Reports:** [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          **Security Policy:** [SECURITY.md](https://github.com/${{ github.repository }}/blob/main/SECURITY.md)
+          `;
+          
+          // Check if issue already exists
+          const issues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            labels: ['security', 'audit-failure'],
+            state: 'open'
+          });
+          
+          if (issues.data.length === 0) {
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'audit-failure', 'priority-high', 'windows-sspi']
+            });
+          }

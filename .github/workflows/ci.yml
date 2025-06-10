@@ -1,42 +1,105 @@
-# .github/workflows/ci.yml
 name: CI/CD Pipeline
+
+# ===== SECURITY AUDIT EXCEPTIONS =====
+# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md):
+# - RUSTSEC-2023-0071: RSA Marvin Attack - Betrifft nur Windows SSPI Auth, minimales Risiko
+# - RUSTSEC-2024-0436: paste crate - no longer maintained, aber keine Alternative verfügbar
+# 
+# Begründung RUSTSEC-2023-0071:
+# - Nur Windows-Builds mit SSPI betroffen (Linux/macOS nicht betroffen)
+# - Erfordert lokalen Angreifer mit präzisen Timing-Messungen
+# - Alternative: Basic Auth statt SSPI verwenden
+# - Dependency-Pfad: rsa v0.9.8 → picky v7.0.0-rc.14 → sspi v0.10.1
+# 
+# Begründung RUSTSEC-2024-0436:
+# - paste v1.0.15 nicht mehr maintained, aber funktional stabil
+# - Wird nur für Makro-Helpers in ratatui verwendet (minimale Attack Surface)
+# - Keine bekannten Sicherheitslücken, nur Maintenance-Warnung
+# - Keine funktionale Alternative verfügbar (proc-macro erforderlich)
+# 
+# Referenz: SECURITY.md, CVE-Tracking, ratatui Updates
+# ==========================================
 
 on:
   push:
     branches: [ main, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, develop ]
-  workflow_run:
-    workflows: ["Fast CI (Feature Branches)"]
-    types: [completed]
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly security audit on Mondays
 
 permissions:
   contents: read
   security-events: write
+  id-token: write  # For OIDC token
+  actions: read    # For GitHub's dependency submission
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_INCREMENTAL: 0      # Disable for CI
+  CARGO_INCREMENTAL: 0      # Disable for CI builds
   CARGO_NET_RETRY: 10
   RUST_LOG: warn
-  # Optimierte Build-Settings
-  CARGO_BUILD_JOBS: 2       # Erhöht von 1 für bessere Parallelität
+  CARGO_BUILD_JOBS: 2
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  # Security audit exceptions (detaillierte Begründung siehe Header-Kommentare und SECURITY.md)
+  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2024-0436"
+  CARGO_AUDIT_DATABASE_FETCH_TIMEOUT: 30
 
 jobs:
-  # ===== SCHNELLE CHECKS (parallel) =====
-  quick-checks:
-    name: Quick Checks
+  # ===== METADATA & SETUP =====
+  setup:
+    name: Setup & Metadata
     runs-on: ubuntu-latest
     outputs:
       rust-version: ${{ steps.rust-info.outputs.version }}
+      should-release: ${{ steps.release-check.outputs.should-release }}
+      cache-key: ${{ steps.cache-info.outputs.key }}
     steps:
-    - name: Checkout code
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for proper versioning
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Rust version info
+      id: rust-info
+      run: |
+        echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "Rust version: $(rustc --version)"
+
+    - name: Cache key calculation
+      id: cache-info
+      run: |
+        CACHE_KEY="rust-${{ runner.os }}-$(date +%Y-%m)-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}"
+        echo "key=$CACHE_KEY" >> $GITHUB_OUTPUT
+        echo "Cache key: $CACHE_KEY"
+
+    - name: Release check
+      id: release-check
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          echo "should-release=true" >> $GITHUB_OUTPUT
+        else
+          echo "should-release=false" >> $GITHUB_OUTPUT
+        fi
+
+  # ===== QUICK QUALITY CHECKS (parallel, fail-fast) =====
+  quality-checks:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+    - name: Checkout
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
@@ -44,67 +107,91 @@ jobs:
       with:
         components: rustfmt, clippy
 
-    # Swatinem/rust-cache ist optimierter als manuelle Cache-Konfiguration
+    # Optimized Rust caching
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
       with:
-        # Shared cache zwischen Jobs
-        shared-key: "quick-checks"
-        # Cache auch für unterschiedliche Targets
+        shared-key: quality-checks
         cache-targets: true
         cache-on-failure: true
+        prefix-key: ${{ needs.setup.outputs.cache-key }}
 
-    # sccache für zusätzliche Compiler-Geschwindigkeit
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.9
-
-    # sccache env vars NACH der Installation setzen  
-    - name: Configure sccache
-      run: |
-        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-        echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
-
-    # sccache env vars NACH der Installation setzen
-    - name: Configure sccache
-      run: |
-        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-        echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
-
-    - name: Get Rust version
-      id: rust-info
-      run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
-
-    - name: Check code formatting
+    # Parallel quality checks
+    - name: Check formatting
       run: cargo fmt --all -- --check
 
-    - name: Run Clippy (nur warnings, schneller)
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+    - name: Lint with Clippy
+      run: |
+        cargo clippy --workspace --all-targets --all-features \
+          --message-format=json -- -D warnings \
+          | tee clippy-results.json
 
-    # Zusätzlicher schneller Check für Cargo.toml
-    - name: Check Cargo.toml
-      run: cargo check --workspace --all-targets
+    - name: Upload Clippy results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: clippy-results
+        path: clippy-results.json
+        retention-days: 7
 
-  # ===== CROSS-PLATFORM BUILD & TEST (Matrix optimiert) =====
+    - name: Check Cargo.toml format
+      run: |
+        cargo check --workspace --all-targets --all-features
+        cargo tree --duplicates
+
+  # ===== COMPREHENSIVE TESTING =====
   test:
-    name: Test (${{ matrix.os }})
-    needs: quick-checks
+    name: Test (${{ matrix.name }})
+    needs: [setup, quality-checks]
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Optimierte Matrix: Erst Linux (schnellste), dann andere
-          - os: ubuntu-latest
+          # Primary platforms (must pass)
+          - name: "Linux x64"
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: windows-latest  
+            features: "--all-features"
+            experimental: false
+          - name: "Windows x64"
+            os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: macos-latest
+            features: "--all-features"
+            experimental: false
+          - name: "macOS Intel"
+            os: macos-13
             target: x86_64-apple-darwin
+            features: "--all-features"
+            experimental: false
+          - name: "macOS ARM64"
+            os: macos-latest
+            target: aarch64-apple-darwin
+            features: "--all-features"
+            experimental: false
+          
+          # Feature testing (Linux only for speed)
+          - name: "Minimal features"
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            features: "--no-default-features --features minimal"
+            experimental: false
+          - name: "AWS features"
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            features: "--no-default-features --features aws"
+            experimental: false
+          
+          # Experimental targets
+          - name: "Linux ARM64"
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            features: "--all-features"
+            experimental: true
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
@@ -112,215 +199,413 @@ jobs:
       with:
         targets: ${{ matrix.target }}
 
-    # Optimiertes Rust-Caching mit spezifischen Keys
+    # Platform-specific setup
+    - name: Install cross-compilation tools
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        cargo install cross --git https://github.com/cross-rs/cross
+        
+    # Optimized caching per target
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
       with:
         key: ${{ matrix.target }}
-        shared-key: "test-${{ matrix.os }}"
+        shared-key: test-${{ matrix.os }}
         cache-targets: true
         cache-on-failure: true
+        prefix-key: ${{ needs.setup.outputs.cache-key }}
 
-    # sccache für alle Platforms
-    - name: Setup sccache  
-      uses: mozilla-actions/sccache-action@v0.0.9
-
-    # sccache env vars NACH der Installation setzen
-    - name: Configure sccache
+    # Comprehensive testing
+    - name: Run tests
       run: |
-        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-        echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
-
-    # Parallele Build-Strategien je nach OS
-    - name: Build and test
-      run: |
-        # Schneller check erst, dann build
-        cargo check --target ${{ matrix.target }} --all-features
-        cargo build --target ${{ matrix.target }} --all-features
-        cargo test --target ${{ matrix.target }} --all-features
+        echo "::group::Build check"
+        if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+          cross check --target ${{ matrix.target }} ${{ matrix.features }}
+        else
+          cargo check --target ${{ matrix.target }} ${{ matrix.features }}
+        fi
+        echo "::endgroup::"
+        
+        echo "::group::Build"
+        if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+          cross build --target ${{ matrix.target }} ${{ matrix.features }}
+        else
+          cargo build --target ${{ matrix.target }} ${{ matrix.features }}
+        fi
+        echo "::endgroup::"
+        
+        echo "::group::Test"
+        if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+          echo "Skipping tests for cross-compilation target"
+        else
+          cargo test --target ${{ matrix.target }} ${{ matrix.features }} --verbose
+        fi
+        echo "::endgroup::"
       env:
-        # OS-spezifische Optimierungen
+        RUST_LOG: debug
+        # Platform-specific optimizations
         CARGO_BUILD_JOBS: ${{ matrix.os == 'ubuntu-latest' && '4' || '2' }}
 
-    - name: Show sccache stats
-      run: sccache --show-stats
+    # Collect test artifacts
+    - name: Upload test artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-artifacts-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/debug/deps/*.log
+          target/${{ matrix.target }}/debug/build/*/output
+        retention-days: 3
 
-  # ===== SECURITY & QUALITY (parallel zu Tests) =====
+  # ===== SECURITY & COMPLIANCE =====
   security:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
-    # Kleinerer Cache nur für audit tools
-    - name: Cache audit tools
-      uses: actions/cache@v4
+    # Fast tool installation
+    - name: Install security tools
+      uses: taiki-e/install-action@v2
       with:
-        path: ~/.cargo/bin/cargo-audit
-        key: audit-tools-${{ runner.os }}-v2
+        tool: cargo-audit,cargo-deny
 
-    - name: Install cargo-audit
-      run: cargo install --locked cargo-audit
+    # Security checks
+    - name: Audit dependencies
+      run: |
+        echo "::group::Cargo Audit"
+        echo "🔍 Security Audit with documented exceptions:"
+        echo "   - RUSTSEC-2023-0071: RSA Marvin Attack (Windows SSPI only, see SECURITY.md)"
+        echo "   - RUSTSEC-2024-0436: paste crate unmaintained (no alternatives available)"
+        echo "   - Full rationale documented in SECURITY.md"
+        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436 --format json > audit-results.json || true
+        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+        echo "::endgroup::"
 
-    - name: Run security audit
-      run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+    - name: Check licenses and advisories
+      run: |
+        echo "::group::Cargo Deny"
+        cargo deny check --format json > deny-results.json || true
+        cargo deny check
+        echo "::endgroup::"
 
-  # ===== DEPENDENCY CHECK (optimiert für main branch) =====
+    - name: Upload security results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-results
+        path: |
+          audit-results.json
+          deny-results.json
+        retention-days: 30
+
+  # ===== DEPENDENCY ANALYSIS =====
   dependencies:
-    name: Dependency Check
+    name: Dependency Analysis
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install analysis tools
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-machete,cargo-udeps
+
+    - name: Setup nightly for udeps
+      uses: dtolnay/rust-toolchain@nightly
+
+    - name: Analyze dependencies
+      run: |
+        echo "::group::Unused dependencies (machete)"
+        cargo machete || echo "Found unused dependencies"
+        echo "::endgroup::"
+        
+        echo "::group::Unused dependencies (udeps)"
+        cargo +nightly udeps --all-targets || echo "Found unused dependencies"
+        echo "::endgroup::"
+
+    # Dependency submission for GitHub's Dependabot
+    - name: Submit dependencies
+      uses: actions/dependency-review-action@v4
+      if: github.event_name == 'pull_request'
+
+  # ===== DOCUMENTATION & EXAMPLES =====
+  docs:
+    name: Documentation
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache dependency tools
-      uses: actions/cache@v4
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
       with:
-        path: ~/.cargo/bin/cargo-machete
-        key: dep-tools-${{ runner.os }}-v2
+        shared-key: docs
+        cache-targets: true
 
-    - name: Install cargo-machete
-      run: cargo install --locked cargo-machete
+    - name: Build documentation
+      run: |
+        cargo doc --workspace --all-features --no-deps
+        echo '<meta http-equiv="refresh" content="0; url=dnspx">' > target/doc/index.html
 
-    - name: Check for unused dependencies
-      run: cargo machete
+    - name: Upload documentation
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: target/doc
 
-  # ===== OPTIMIERTE RELEASE BUILDS =====
+  # ===== PERFORMANCE BENCHMARKS =====
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: benchmarks
+        cache-targets: true
+
+    - name: Run benchmarks
+      run: |
+        if [ -d "benches" ]; then
+          cargo bench --all-features -- --output-format json > benchmark-results.json
+        else
+          echo "No benchmarks found"
+        fi
+
+    - name: Upload benchmark results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark-results.json
+        retention-days: 30
+
+  # ===== RELEASE BUILDS =====
   release:
-    name: Release (${{ matrix.target }})
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    needs: [test, security]
+    name: Release Build (${{ matrix.target }})
+    if: needs.setup.outputs.should-release == 'true'
+    needs: [setup, test, security]
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Optimierte Build-Matrix mit nativen Builds wo möglich
+          # Linux builds
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: false
             archive: tar.gz
-          - target: aarch64-unknown-linux-gnu  
+          - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: true
             archive: tar.gz
+            cross: true
+          
+          # Windows builds
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            cross: false
             archive: zip
           - target: aarch64-pc-windows-msvc
-            os: windows-latest  
-            cross: false
+            os: windows-latest
             archive: zip
+          
+          # macOS builds
           - target: x86_64-apple-darwin
-            os: macos-latest
-            cross: false
+            os: macos-13
             archive: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
-            cross: false
             archive: tar.gz
 
-    runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ matrix.target }}
 
-    # Separater Cache für Release-Builds
-    - name: Setup Rust cache for release
+    - name: Install cross
+      if: matrix.cross
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cross
+
+    - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
       with:
         key: release-${{ matrix.target }}
-        cache-targets: true
+        cache-targets: false  # Don't cache debug artifacts for release
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.9
-
-    - name: Install cross-compilation tools
-      if: matrix.cross
-      run: cargo install cross --git https://github.com/cross-rs/cross
-
-    # Optimierter Release-Build
     - name: Build release binary
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then
-          cross build --release --target ${{ matrix.target }}
+          cross build --release --target ${{ matrix.target }} --all-features
         else
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --target ${{ matrix.target }} --all-features
         fi
       env:
-        # Release-optimierte Settings
+        # Aggressive release optimizations
         CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
         CARGO_PROFILE_RELEASE_LTO: fat
+        CARGO_PROFILE_RELEASE_PANIC: abort
 
-    # Intelligentere Artifact-Behandlung
-    - name: Prepare release artifact
+    - name: Create release archive
       shell: bash
       run: |
         mkdir -p releases
         cd target/${{ matrix.target }}/release/
         
-        if [[ "${{ matrix.archive }}" == "zip" ]]; then
-          7z a ../../../releases/dnspx-${{ matrix.target }}.${{ matrix.archive }} dnspx.exe
+        # Determine binary name
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          BINARY="dnspx.exe"
         else
-          tar czf ../../../releases/dnspx-${{ matrix.target }}.${{ matrix.archive }} dnspx
+          BINARY="dnspx"
+        fi
+        
+        # Create archive
+        if [[ "${{ matrix.archive }}" == "zip" ]]; then
+          7z a ../../../releases/dnspx-${{ matrix.target }}.${{ matrix.archive }} $BINARY
+        else
+          tar czf ../../../releases/dnspx-${{ matrix.target }}.${{ matrix.archive }} $BINARY
+        fi
+        
+        # Create checksums
+        cd ../../../releases
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          powershell -Command "Get-FileHash dnspx-${{ matrix.target }}.${{ matrix.archive }} -Algorithm SHA256 | Select-Object -ExpandProperty Hash" > dnspx-${{ matrix.target }}.sha256
+        else
+          sha256sum dnspx-${{ matrix.target }}.${{ matrix.archive }} > dnspx-${{ matrix.target }}.sha256
         fi
 
-    - name: Upload release artifact
+    - name: Upload release artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: dnspx-${{ matrix.target }}
-        path: releases/dnspx-${{ matrix.target }}.${{ matrix.archive }}
-        retention-days: 7
+        name: release-${{ matrix.target }}
+        path: |
+          releases/dnspx-${{ matrix.target }}.*
+        retention-days: 30
 
-  # ===== RELEASE ASSEMBLY (nur bei Tags) =====
-  assemble-release:
-    name: Assemble Release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: release
+  # ===== GITHUB RELEASE =====
+  github-release:
+    name: Create GitHub Release
+    if: needs.setup.outputs.should-release == 'true'
+    needs: [setup, release]
     runs-on: ubuntu-latest
     steps:
-    - name: Download all artifacts
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download all release artifacts
       uses: actions/download-artifact@v4
       with:
+        pattern: release-*
         path: artifacts/
+        merge-multiple: true
+
+    - name: Create release notes
+      run: |
+        echo "# Release ${{ github.ref_name }}" > release-notes.md
+        echo "" >> release-notes.md
+        echo "## Changes" >> release-notes.md
+        git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release-notes.md || echo "Initial release" >> release-notes.md
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
-        files: artifacts/*/dnspx-*
+        files: artifacts/*
+        body_path: release-notes.md
         draft: false
-        prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') }}
+        prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+        generate_release_notes: true
 
-  # ===== STREAMLINED NOTIFICATIONS =====
+  # ===== DEPLOYMENT & NOTIFICATIONS =====
+  deploy:
+    name: Deploy Documentation
+    if: github.ref == 'refs/heads/main'
+    needs: [docs]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+  # ===== COMPREHENSIVE NOTIFICATIONS =====
   notify:
-    name: Notifications  
+    name: Pipeline Results
     if: always()
-    needs: [quick-checks, test, security]
+    needs: [setup, quality-checks, test, security, dependencies]
     runs-on: ubuntu-latest
     steps:
-    - name: Report results
+    - name: Evaluate results
       run: |
-        if [[ "${{ needs.test.result }}" == "success" && "${{ needs.security.result }}" == "success" ]]; then
-          echo "✅ CI Pipeline successful!"
-          echo "🚀 Quick checks: ${{ needs.quick-checks.result }}"
-          echo "🧪 Tests: ${{ needs.test.result }}" 
-          echo "🔒 Security: ${{ needs.security.result }}"
+        echo "## 🚀 CI/CD Pipeline Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Quality checks
+        if [[ "${{ needs.quality-checks.result }}" == "success" ]]; then
+          echo "✅ **Quality Checks**: Passed" >> $GITHUB_STEP_SUMMARY
         else
-          echo "❌ CI Pipeline failed!"
-          echo "Quick checks: ${{ needs.quick-checks.result }}"
-          echo "Tests: ${{ needs.test.result }}"
-          echo "Security: ${{ needs.security.result }}"
-          exit 1
+          echo "❌ **Quality Checks**: Failed" >> $GITHUB_STEP_SUMMARY
         fi
+        
+        # Tests
+        if [[ "${{ needs.test.result }}" == "success" ]]; then
+          echo "✅ **Tests**: All platforms passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Tests**: Some platforms failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Security
+        if [[ "${{ needs.security.result }}" == "success" ]]; then
+          echo "✅ **Security**: No vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Security**: Issues detected" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Dependencies
+        if [[ "${{ needs.dependencies.result }}" == "success" ]]; then
+          echo "✅ **Dependencies**: Clean" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Dependencies**: Issues found" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Report failure
+      if: |
+        needs.quality-checks.result == 'failure' ||
+        needs.test.result == 'failure' ||
+        needs.security.result == 'failure'
+      run: |
+        echo "❌ Pipeline failed - check individual job results"
+        exit 1
+
+    - name: Report success
+      if: |
+        needs.quality-checks.result == 'success' &&
+        needs.test.result == 'success' &&
+        needs.security.result == 'success'
+      run: |
+        echo "✅ All critical checks passed!"

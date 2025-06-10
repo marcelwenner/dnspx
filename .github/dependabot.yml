@@ -1,37 +1,116 @@
+# .github/dependabot.yml
 version: 2
+
 updates:
+  # Rust dependencies
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "06:00"
+      timezone: "Europe/Berlin"
+    
     open-pull-requests-limit: 10
+    
+    groups:
+      aws-sdk:
+        patterns:
+          - "aws-*"
+        update-types:
+          - "minor"
+          - "patch"
+      tokio-ecosystem:
+        patterns:
+          - "tokio*"
+          - "hyper*"
+          - "tower*"
+        update-types:
+          - "minor"
+          - "patch"
+      serde-ecosystem:
+        patterns:
+          - "serde*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-tools:
+        patterns:
+          - "*audit*"
+          - "*security*"
+          - "cargo-deny"
+        update-types:
+          - "minor"
+          - "patch"
+      tui-dependencies:
+        patterns:
+          - "ratatui"
+          - "crossterm"
+          - "supports-color"
+          - "colored"
+        update-types:
+          - "minor"
+          - "patch"
+    
     reviewers:
       - "nbyx"
     assignees:
-      - "nbyx" 
-    commit-message:
-      prefix: "deps"
-      include: "scope"
+      - "nbyx"
+    
     labels:
       - "dependencies"
       - "rust"
     
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    
+    allow:
+      - dependency-type: "all"
+    
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    
+    vendor: true
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday" 
+      day: "monday"
       time: "06:00"
+      timezone: "Europe/Berlin"
+    
     open-pull-requests-limit: 5
+    
+    groups:
+      actions-core:
+        patterns:
+          - "actions/*"
+        update-types:
+          - "minor"
+          - "patch"
+      rust-actions:
+        patterns:
+          - "*rust*"
+          - "*cargo*"
+          - "dtolnay/*"
+          - "Swatinem/*"
+          - "taiki-e/*"
+        update-types:
+          - "minor"
+          - "patch"
+    
     reviewers:
       - "nbyx"
     assignees:
       - "nbyx"
-    commit-message:
-      prefix: "ci"
-      include: "scope"
+    
     labels:
       - "dependencies"
       - "github-actions"
+    
+    commit-message:
+      prefix: "ci"
+      include: "scope"

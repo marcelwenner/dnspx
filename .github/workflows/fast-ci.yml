@@ -1,37 +1,144 @@
+# ===== SECURITY AUDIT EXCEPTIONS =====
+# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md):
+# - RUSTSEC-2023-0071: RSA Marvin Attack - Betrifft nur Windows SSPI Auth, minimales Risiko
+# - RUSTSEC-2024-0436: paste crate - no longer maintained, aber keine Alternative verfügbar
+# 
+# Quick Reference RUSTSEC-2023-0071:
+# - Windows SSPI only, erfordert lokalen Timing-Angriff
+# - Mitigation durch Basic Auth statt SSPI möglich
+# - Detaillierte Analyse in SECURITY.md
+# 
+# Quick Reference RUSTSEC-2024-0436:
+# - paste v1.0.15 unmaintained, aber funktional stabil
+# - Nur proc-macro Helper (minimale Attack Surface)
+# - Monitoring für ratatui Updates mit paste-Alternativen
+# 
+# ==========================================
+
 name: Fast CI (Feature Branches)
 
 on:
   push:
-    branches: 
-      - '**'
-      - '!main'
-      - '!develop'
+    branches-ignore: [ main, develop ]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: fast-ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_LOG: warn
+  # Security audit exceptions (siehe Header-Kommentare)
+  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2024-0436"
+
 jobs:
-  quick-check:
-    name: Quick Check
+  # ===== SUPER FAST LINT & FORMAT CHECK =====
+  lint:
+    name: Quick Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
-    
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Setup cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: fast-lint
+        cache-targets: false  # Only cache registry/git
+
+    # Parallel execution of quick checks
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Quick clippy (warnings only)
+      run: cargo clippy --workspace --tests -- -D warnings
+
+    - name: Check Cargo.toml
+      run: cargo check --workspace
+
+  # ===== FAST LINUX-ONLY TESTING =====
+  test-linux:
+    name: Fast Test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+    strategy:
+      matrix:
+        features:
+          - "--all-features"
+          - "--no-default-features --features minimal"
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Format check
-      run: cargo fmt --all -- --check
+    - name: Setup cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: fast-test
+        key: ${{ matrix.features }}
 
-    - name: Clippy check  
-      run: cargo clippy --bins --no-default-features --features aws,tui -- -D warnings
+    - name: Build and test
+      run: |
+        cargo build ${{ matrix.features }}
+        cargo test ${{ matrix.features }} --quiet
+      env:
+        CARGO_BUILD_JOBS: 4
 
-    - name: Build check
-      run: cargo build
+  # ===== BASIC SECURITY CHECK =====
+  security-quick:
+    name: Quick Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
 
-    - name: Fast tests (Ubuntu only)
-      run: cargo test
+    - name: Install audit
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-audit
+
+    - name: Quick audit
+      run: |
+        echo "🔍 Quick Security Audit (documented exceptions in SECURITY.md)"
+        echo "   Ignoring: RUSTSEC-2023-0071 (Windows SSPI timing attack)"
+        echo "   Ignoring: RUSTSEC-2024-0436 (paste crate unmaintained, no alternatives)"
+        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+
+  # ===== RESULTS =====
+  fast-ci-result:
+    name: Fast CI Result
+    if: always()
+    needs: [lint, test-linux, security-quick]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Evaluate results
+      run: |
+        if [[ "${{ needs.lint.result }}" == "success" && \
+              "${{ needs.test-linux.result }}" == "success" && \
+              "${{ needs.security-quick.result }}" == "success" ]]; then
+          echo "✅ Fast CI passed - ready for full CI pipeline"
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Fast CI failed"
+          echo "status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
