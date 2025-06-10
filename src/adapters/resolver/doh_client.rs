@@ -1484,25 +1484,49 @@ mod sspi_integration_tests {
         let manager = SspiAuthManager::new_for_current_user("test.example.com".to_string())
             .expect("Should create manager");
 
+        // Initial state should always be Initial
         assert!(matches!(
             manager.get_auth_state().await,
             SspiAuthState::Initial
         ));
         assert!(!manager.is_authenticated().await);
 
-        let _ = manager.get_initial_token().await;
-        if !matches!(manager.get_auth_state().await, SspiAuthState::Failed(_)) {
-            assert!(matches!(
-                manager.get_auth_state().await,
-                SspiAuthState::NegotiateSent
-                    | SspiAuthState::Authenticated
-                    | SspiAuthState::ChallengeReceived
-            ));
+        // Try to get initial token - this might fail in test environment
+        let token_result = manager.get_initial_token().await;
+
+        // The state after token generation can be either successful states or Failed
+        // depending on the test environment (SSPI infrastructure availability)
+        let state_after_token = manager.get_auth_state().await;
+        match state_after_token {
+            SspiAuthState::NegotiateSent
+            | SspiAuthState::Authenticated
+            | SspiAuthState::ChallengeReceived => {
+                // SSPI is working properly - continue with success path testing
+                assert!(
+                    token_result.is_ok(),
+                    "Token generation should succeed in working SSPI environment"
+                );
+            }
+            SspiAuthState::Failed(ref _msg) => {
+                // SSPI failed (likely no proper infrastructure) - this is acceptable in test environment
+                assert!(
+                    token_result.is_err(),
+                    "Token generation should fail when SSPI infrastructure is not available"
+                );
+                // Skip the rest of the test as SSPI is not functional
+                return;
+            }
+            SspiAuthState::Initial => {
+                panic!("State should not remain Initial after token generation attempt");
+            }
         }
 
+        // Only continue if SSPI is working
+        // Test manual state setting
         manager.set_auth_state(SspiAuthState::Authenticated).await;
         assert!(manager.is_authenticated().await);
 
+        // Test reset functionality
         manager.reset().await;
         assert!(matches!(
             manager.get_auth_state().await,
