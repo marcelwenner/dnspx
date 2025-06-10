@@ -109,14 +109,14 @@ impl SspiAuthManager {
                 .acquire_credentials_handle()
                 .with_credential_use(CredentialUse::Outbound);
 
-            if let Some(identity) = self.create_auth_identity() {
+            let identity = self.create_auth_identity();
+            if let Some(ref identity) = identity {
                 debug!(target: "sspi_auth", spn = %self.target_spn, "Acquiring NTLM credentials with explicit identity");
-                builder = builder.with_auth_data(&identity);
+                builder = builder.with_auth_data(identity);
             } else {
                 debug!(target: "sspi_auth", spn = %self.target_spn, "Acquiring NTLM credentials for current user");
             }
 
-            // WICHTIG: execute() statt resolve()!
             let acq_result = builder.execute(&mut *sspi_client_locked).map_err(|e| {
                 error!(target: "sspi_auth", spn = %self.target_spn, error = %e, "Failed to acquire NTLM credentials");
                 ResolveError::HttpProxy(format!("Failed to acquire NTLM credentials handle: {}", e))
@@ -150,9 +150,8 @@ impl SspiAuthManager {
             .with_target_name(&self.target_spn)
             .with_output(&mut output_buffers);
 
-        // WICHTIG: execute() statt resolve()!
-        let result = init_builder
-            .execute(&mut *sspi_client_locked)
+        let result = sspi_client_locked
+            .initialize_security_context_impl(&mut init_builder)
             .map_err(|e| {
                 ResolveError::HttpProxy(format!(
                     "Failed to initialize NTLM security context: {}",
@@ -234,8 +233,9 @@ impl SspiAuthManager {
                     .with_target_data_representation(DataRepresentation::Native)
                     .with_target_name(&self.target_spn);
 
-                // WICHTIG: execute() statt resolve()!
-                let result = builder.execute(&mut *sspi_client_locked).map_err(|e| {
+                let result = sspi_client_locked
+                    .initialize_security_context_impl(&mut builder)
+                    .map_err(|e| {
                     ResolveError::HttpProxy(format!("NTLM challenge response failed: {}", e))
                 })?;
 
