@@ -89,7 +89,7 @@ jobs:
       shell: bash
       id: release-check
       run: |
-        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/tags/v* ]]; then
           echo "should-release=true" >> $GITHUB_OUTPUT
         else
           echo "should-release=false" >> $GITHUB_OUTPUT
@@ -407,10 +407,9 @@ jobs:
         path: benchmark-results.json
         retention-days: 30
 
-  # ===== RELEASE BUILDS =====
-  release:
-    name: Release Build (${{ matrix.target }})
-    if: needs.setup.outputs.should-release == 'true'
+  # ===== BUILD BINARIES (ALWAYS) =====
+  build-binaries:
+    name: Build Binary (${{ matrix.target }})
     needs: [setup, test, security]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -506,46 +505,126 @@ jobs:
           sha256sum dnspx-${{ matrix.target }}.${{ matrix.archive }} > dnspx-${{ matrix.target }}.sha256
         fi
 
-    - name: Upload release artifacts
+    - name: Upload binary artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: release-${{ matrix.target }}
+        name: binary-${{ matrix.target }}
         path: |
           releases/dnspx-${{ matrix.target }}.*
-        retention-days: 30
+        retention-days: 90
 
-  # ===== GITHUB RELEASE =====
+  # ===== GITHUB RELEASE (MAIN BRANCH + TAGS) =====
   github-release:
     name: Create GitHub Release
     if: needs.setup.outputs.should-release == 'true'
-    needs: [setup, release]
+    needs: [setup, build-binaries]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed for creating releases
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Download all release artifacts
+    - name: Download all binary artifacts
       uses: actions/download-artifact@v4
       with:
-        pattern: release-*
+        pattern: binary-*
         path: artifacts/
         merge-multiple: true
 
+    - name: Generate version for main branch
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          # Generate version from commit: v0.1.0-dev.SHORT_SHA
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d-%H%M)
+          VERSION="v0.1.0-dev.${SHORT_SHA}.${TIMESTAMP}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          echo "Generated dev version: $VERSION"
+        else
+          # Use tag name for tagged releases
+          VERSION="${{ github.ref_name }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$VERSION" == *"-rc"* ]] || [[ "$VERSION" == *"-beta"* ]] || [[ "$VERSION" == *"-alpha"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Using tag version: $VERSION"
+        fi
+
     - name: Create release notes
       run: |
-        echo "# Release ${{ github.ref_name }}" > release-notes.md
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          echo "# Development Build $VERSION" > release-notes.md
+          echo "" >> release-notes.md
+          echo "🚧 **This is a development build from the main branch**" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "- **Commit**: [\`${{ github.sha }}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})" >> release-notes.md
+          echo "- **Built**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> release-notes.md
+          echo "- **Branch**: main" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## ⚠️ Development Notice" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "This build represents the latest development state and may contain:" >> release-notes.md
+          echo "- 🐛 Experimental features" >> release-notes.md
+          echo "- 🧪 Unreleased changes" >> release-notes.md
+          echo "- ⚡ Performance improvements" >> release-notes.md
+          echo "- 🔧 Bug fixes" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "**Use at your own risk for testing purposes.**" >> release-notes.md
+          echo "" >> release-notes.md
+        else
+          echo "# Release $VERSION" > release-notes.md
+          echo "" >> release-notes.md
+          echo "## 🚀 What's New" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "<!-- Add your release notes here -->" >> release-notes.md
+          echo "" >> release-notes.md
+        fi
+        
+        echo "## 📦 Downloads" >> release-notes.md
         echo "" >> release-notes.md
-        echo "## Changes" >> release-notes.md
-        git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release-notes.md || echo "Initial release" >> release-notes.md
+        echo "Choose the appropriate binary for your platform:" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "- **Linux x64**: \`dnspx-x86_64-unknown-linux-gnu.tar.gz\`" >> release-notes.md
+        echo "- **Linux ARM64**: \`dnspx-aarch64-unknown-linux-gnu.tar.gz\`" >> release-notes.md
+        echo "- **Windows x64**: \`dnspx-x86_64-pc-windows-msvc.zip\`" >> release-notes.md
+        echo "- **Windows ARM64**: \`dnspx-aarch64-pc-windows-msvc.zip\`" >> release-notes.md
+        echo "- **macOS Intel**: \`dnspx-x86_64-apple-darwin.tar.gz\`" >> release-notes.md
+        echo "- **macOS ARM64**: \`dnspx-aarch64-apple-darwin.tar.gz\`" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "## 🔐 Verification" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "All binaries include SHA256 checksums (*.sha256 files) for verification." >> release-notes.md
+        echo "" >> release-notes.md
+        
+        if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+          echo "## 📋 Changes" >> release-notes.md
+          echo "" >> release-notes.md
+          git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release-notes.md 2>/dev/null || echo "Initial release" >> release-notes.md
+        else
+          echo "## 📋 Recent Changes" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "Latest commits included in this build:" >> release-notes.md
+          echo "" >> release-notes.md
+          git log --oneline -5 >> release-notes.md
+        fi
 
-    - name: Create GitHub Release
+    - name: Create GitHub Release Draft
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: ${{ steps.version.outputs.version }}
         files: artifacts/*
         body_path: release-notes.md
-        draft: false
-        prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
-        generate_release_notes: true
+        draft: true  # Always create as draft
+        prerelease: ${{ steps.version.outputs.is_prerelease }}
+        generate_release_notes: false  # Use our custom template
 
   # ===== DEPLOYMENT & NOTIFICATIONS =====
   deploy:
@@ -565,7 +644,7 @@ jobs:
   notify:
     name: Pipeline Results
     if: always()
-    needs: [setup, quality-checks, test, security, dependencies]
+    needs: [setup, quality-checks, test, security, dependencies, build-binaries]
     runs-on: ubuntu-latest
     steps:
     - name: Evaluate results
@@ -598,15 +677,37 @@ jobs:
         # Dependencies
         if [[ "${{ needs.dependencies.result }}" == "success" ]]; then
           echo "✅ **Dependencies**: Clean" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.dependencies.result }}" == "skipped" ]]; then
+          echo "⏭️ **Dependencies**: Skipped (not main branch)" >> $GITHUB_STEP_SUMMARY
         else
           echo "⚠️ **Dependencies**: Issues found" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Binaries
+        if [[ "${{ needs.build-binaries.result }}" == "success" ]]; then
+          echo "✅ **Binaries**: Built successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Download Artifacts**: Check the 'Artifacts' section for pre-built binaries" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Binaries**: Build failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Release info
+        if [[ "${{ needs.setup.outputs.should-release }}" == "true" ]]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "🚧 **Development Release**: Draft created for latest main branch" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🎉 **Release**: Draft release created for ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          fi
         fi
 
     - name: Report failure
       if: |
         needs.quality-checks.result == 'failure' ||
         needs.test.result == 'failure' ||
-        needs.security.result == 'failure'
+        needs.security.result == 'failure' ||
+        needs.build-binaries.result == 'failure'
       run: |
         echo "❌ Pipeline failed - check individual job results"
         exit 1
@@ -615,6 +716,7 @@ jobs:
       if: |
         needs.quality-checks.result == 'success' &&
         needs.test.result == 'success' &&
-        needs.security.result == 'success'
+        needs.security.result == 'success' &&
+        needs.build-binaries.result == 'success'
       run: |
         echo "✅ All critical checks passed!"
