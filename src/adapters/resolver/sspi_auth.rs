@@ -236,8 +236,8 @@ impl SspiAuthManager {
                 let result = sspi_client_locked
                     .initialize_security_context_impl(&mut builder)
                     .map_err(|e| {
-                    ResolveError::HttpProxy(format!("NTLM challenge response failed: {}", e))
-                })?;
+                        ResolveError::HttpProxy(format!("NTLM challenge response failed: {}", e))
+                    })?;
 
                 let response_token_bytes = output_buffers[0].buffer.to_vec();
 
