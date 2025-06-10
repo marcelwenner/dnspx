@@ -33,6 +33,7 @@ permissions:
   contents: read
   security-events: write
   id-token: write  # For OIDC token
+  pages: write
   actions: read    # For GitHub's dependency submission
 
 concurrency:
@@ -85,6 +86,7 @@ jobs:
         echo "Cache key: $CACHE_KEY"
 
     - name: Release check
+      shell: bash
       id: release-check
       run: |
         if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
@@ -217,6 +219,7 @@ jobs:
 
     # Comprehensive testing
     - name: Run tests
+      shell: bash
       run: |
         echo "::group::Build check"
         if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
@@ -458,6 +461,7 @@ jobs:
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
     - name: Build release binary
+      shell: bash
       run: |
         if [[ "${{ matrix.cross }}" == "true" ]]; then
           cross build --release --target ${{ matrix.target }} --all-features
@@ -561,6 +565,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Evaluate results
+      shell: bash
       run: |
         echo "## 🚀 CI/CD Pipeline Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY

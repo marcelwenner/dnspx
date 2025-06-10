@@ -14,6 +14,8 @@ all-features = true
 feature-depth = 1
 
 # ===== ADVISORIES (Security Vulnerabilities) =====
+# Nach PR#611: vulnerability/unsound/notice sind jetzt IMMER "deny" by default
+# Nur unmaintained und ignore sind noch konfigurierbar
 [advisories]
 # Database sources
 db-path = "~/.cargo/advisory-db"
@@ -25,7 +27,8 @@ unmaintained = "workspace"  # Optionen: "all", "workspace", "transitive", "none"
 # Ignore specific advisories (bewusste Entscheidungen dokumentiert in SECURITY.md)
 ignore = [
     "RUSTSEC-2023-0071",  # RSA Marvin Attack - Windows SSPI nur, dokumentierte Mitigationen
-    "RUSTSEC-2024-0436",  # paste crate unmaintained - keine Alternativen verfügbar
+    "RUSTSEC-2021-0145",  # atty unaligned read - using inquire dependency, no safe upgrade
+    "RUSTSEC-2024-0375",  # atty unmaintained - using inquire dependency, no safe upgrade
 ]
 
 # ===== LICENSES =====
@@ -41,7 +44,11 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "Zlib",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",
     "Unlicense",
 ]
 
@@ -64,11 +71,37 @@ multiple-versions = "warn"    # Warn about multiple versions
 wildcards = "allow"           # Allow wildcard dependencies in dev-deps
 highlight = "all"            # Highlight all duplicate versions
 
-# Skip certain crates for duplicate version checks
+# Skip certain crates for duplicate version checks (common ecosystem splits)
 skip = [
+    # Windows ecosystem
     { name = "windows-sys" },     # Many Windows crates use different versions
     { name = "windows_x86_64_msvc" },
-    { name = "windows_aarch64_msvc" },
+    
+    # HTTP ecosystem transition
+    { name = "http-body", reason = "AWS SDK uses 0.4.x, reqwest uses 1.x - ecosystem transition" },
+    
+    # System interface evolution  
+    { name = "linux-raw-sys", reason = "Different rustix versions for different crates" },
+    { name = "rustix", reason = "crossterm vs async-std use different versions" },
+    
+    # Async ecosystem
+    { name = "mio", reason = "crossterm/inquire use 0.8.x, tokio uses 1.x" },
+    
+    # Crypto/Random ecosystem
+    { name = "rand", reason = "sspi/picky use 0.8.x, hickory-proto uses 0.9.x" },
+    { name = "rand_chacha", reason = "follows rand versions" },
+    { name = "rand_core", reason = "follows rand versions" },
+    
+    # Error handling ecosystem  
+    { name = "thiserror", reason = "moka/picky use 1.x, dnspx uses 2.x" },
+    { name = "thiserror-impl", reason = "follows thiserror versions" },
+    
+    # Regex ecosystem
+    { name = "regex-automata", reason = "tracing-subscriber vs regex use different versions" },
+    { name = "regex-syntax", reason = "follows regex-automata versions" },
+    
+    # Unicode/text handling
+    { name = "unicode-width", reason = "ratatui uses both 0.1.x and 0.2.x" },
 ]
 
 # Specific version skips
