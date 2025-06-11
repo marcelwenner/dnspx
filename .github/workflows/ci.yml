@@ -536,19 +536,33 @@ jobs:
 
     - name: Generate version for main branch
       id: version
+      shell: bash
       run: |
+        # Extract version from Cargo.toml as single source of truth
+        CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+        echo "Cargo.toml version: $CARGO_VERSION"
+        
         if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          # Generate version from commit: v0.1.0-dev.SHORT_SHA
+          # Generate dev version: v{CARGO_VERSION}-dev.{SHORT_SHA}.{TIMESTAMP}
           SHORT_SHA=$(git rev-parse --short HEAD)
           TIMESTAMP=$(date +%Y%m%d-%H%M)
-          VERSION="v0.1.0-dev.${SHORT_SHA}.${TIMESTAMP}"
+          VERSION="v${CARGO_VERSION}-dev.${SHORT_SHA}.${TIMESTAMP}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "is_prerelease=true" >> $GITHUB_OUTPUT
           echo "Generated dev version: $VERSION"
         else
-          # Use tag name for tagged releases
-          VERSION="${{ github.ref_name }}"
+          # Use tag name for tagged releases (should match Cargo.toml)
+          TAG_VERSION="${{ github.ref_name }}"
+          VERSION="$TAG_VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Validate that tag matches Cargo.toml version
+          if [[ "$TAG_VERSION" == "v${CARGO_VERSION}" ]]; then
+            echo "✅ Tag version matches Cargo.toml: $TAG_VERSION"
+          else
+            echo "⚠️ Warning: Tag version ($TAG_VERSION) doesn't match Cargo.toml (v${CARGO_VERSION})"
+          fi
+          
           if [[ "$VERSION" == *"-rc"* ]] || [[ "$VERSION" == *"-beta"* ]] || [[ "$VERSION" == *"-alpha"* ]]; then
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
           else
