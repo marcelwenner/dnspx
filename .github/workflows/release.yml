@@ -190,7 +190,7 @@ jobs:
       if: matrix.cross
       uses: taiki-e/install-action@v2
       with:
-        tool: cross
+        tool: cross@0.2.4
 
     # Optimized release caching
     - name: Setup cache
