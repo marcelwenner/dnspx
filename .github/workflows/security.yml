@@ -2,8 +2,10 @@
 # Umfassende Sicherheitsüberprüfungen
 
 # ===== SECURITY AUDIT EXCEPTIONS =====
-# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md):
+# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md & deny.toml):
 # - RUSTSEC-2023-0071: RSA Marvin Attack - Betrifft nur Windows SSPI Auth, minimales Risiko
+# - RUSTSEC-2021-0145: atty unaligned read - inquire dependency, kein sicherer Upgrade
+# - RUSTSEC-2024-0375: atty unmaintained - inquire dependency, kein sicherer Upgrade  
 # - RUSTSEC-2024-0436: paste crate - no longer maintained, aber keine Alternative verfügbar
 # 
 # Begründung RUSTSEC-2023-0071:
@@ -12,6 +14,12 @@
 # - Erfordert lokalen Angreifer mit präzisen Timing-Messungen
 # - Mitigationen: Basic Auth verwenden, Netzwerk-Isolation, Monitoring
 # - Dependency-Pfad: rsa v0.9.8 → picky v7.0.0-rc.14 → sspi v0.10.1
+# 
+# Begründung RUSTSEC-2021-0145 & RUSTSEC-2024-0375:
+# - atty crate hat unaligned read issue und ist unmaintained
+# - Verwendet durch inquire dependency (TUI input handling)
+# - Keine sicheren Upgrade-Pfade verfügbar (inquire abhängig von atty)
+# - Minimale Attack Surface - nur für CLI-Prompts verwendet
 # 
 # Begründung RUSTSEC-2024-0436:
 # - paste v1.0.15 nicht mehr maintained seit 2024
@@ -53,8 +61,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Security audit exceptions (siehe Header-Kommentare)
-  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2024-0436"
+  # Security audit exceptions (siehe Header-Kommentare und deny.toml)
+  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2021-0145,RUSTSEC-2024-0375,RUSTSEC-2024-0436"
 
 jobs:
   # ===== VULNERABILITY SCANNING =====
@@ -78,19 +86,23 @@ jobs:
       run: |
         echo "::group::Cargo Audit"
         echo "🔍 Security Audit with documented exceptions:"
-        echo "   📋 Ignored Advisories (see SECURITY.md for full details):"
+        echo "   📋 Ignored Advisories (see SECURITY.md and deny.toml for full details):"
         echo "   - RUSTSEC-2023-0071: RSA Marvin Attack"
         echo "     • Severity: Medium (CVSS 5.9)"
         echo "     • Impact: Windows SSPI only, requires local timing attack"
         echo "     • Mitigation: Use Basic Auth, network isolation, monitoring"
+        echo "   - RUSTSEC-2021-0145: atty unaligned read"
+        echo "     • Impact: inquire dependency, no safe upgrade path"
+        echo "   - RUSTSEC-2024-0375: atty unmaintained"
+        echo "     • Impact: inquire dependency, no safe upgrade path"  
         echo "   - RUSTSEC-2024-0436: paste crate unmaintained"
         echo "     • Severity: Informational (maintenance warning)"
         echo "     • Impact: Minimal attack surface (proc-macro helper only)"
         echo "     • Status: No functional alternatives available"
         echo "     • Monitoring: ratatui updates for paste replacement"
         echo ""
-        cargo audit --format json --output audit-report.json --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436 || true
-        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+        cargo audit --format json --output audit-report.json --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2024-0375 --ignore RUSTSEC-2024-0436 || true
+        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2024-0375 --ignore RUSTSEC-2024-0436
         echo "::endgroup::"
 
     - name: Cargo Deny (Licenses & Advisories)
@@ -338,8 +350,10 @@ jobs:
           - Dependency Analysis: ${{ needs.dependency-analysis.result }}
           - Supply Chain: ${{ needs.supply-chain.result }}
           
-          ### Known Exceptions (SECURITY.md):
+          ### Known Exceptions (SECURITY.md & deny.toml):
           - ✅ RUSTSEC-2023-0071: RSA Marvin Attack (Windows SSPI only)
+          - ✅ RUSTSEC-2021-0145: atty unaligned read (inquire dependency)
+          - ✅ RUSTSEC-2024-0375: atty unmaintained (inquire dependency)
           - ✅ RUSTSEC-2024-0436: paste crate unmaintained (no alternatives)
           
           ### Action Required:
