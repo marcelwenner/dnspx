@@ -52,8 +52,6 @@ updates:
           - "minor"
           - "patch"
     
-    reviewers:
-      - "marcelwenner"
     assignees:
       - "marcelwenner"
     
@@ -100,8 +98,6 @@ updates:
           - "minor"
           - "patch"
     
-    reviewers:
-      - "marcelwenner"
     assignees:
       - "marcelwenner"
     

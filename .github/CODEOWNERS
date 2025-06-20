@@ -1,0 +1,15 @@
+# Global code owners
+* @marcelwenner
+
+# Workflow files
+/.github/ @marcelwenner
+
+# Configuration files
+/deny.toml @marcelwenner
+/Cargo.toml @marcelwenner
+/Cargo.lock @marcelwenner
+
+# Security and documentation
+/SECURITY.md @marcelwenner
+/README.md @marcelwenner
+/LICENSE.md @marcelwenner
