@@ -429,7 +429,7 @@ jobs:
 
     - name: Create post-release PR
       if: needs.validate.outputs.is-prerelease == 'false'
-      uses: peter-evans/create-pull-request@v6
+      uses: peter-evans/create-pull-request@v7
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: "chore: bump version for next development cycle"
