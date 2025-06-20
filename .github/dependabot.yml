@@ -53,9 +53,9 @@ updates:
           - "patch"
     
     reviewers:
-      - "nbyx"
+      - "marcelwenner"
     assignees:
-      - "nbyx"
+      - "marcelwenner"
     
     labels:
       - "dependencies"
@@ -103,9 +103,9 @@ updates:
           - "patch"
     
     reviewers:
-      - "nbyx"
+      - "marcelwenner"
     assignees:
-      - "nbyx"
+      - "marcelwenner"
     
     labels:
       - "dependencies"
