@@ -201,6 +201,7 @@ jobs:
 
     # Aggressive release build
     - name: Build release
+      shell: bash
       run: |
         export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
         export CARGO_PROFILE_RELEASE_LTO=fat
@@ -289,52 +290,10 @@ jobs:
         path: dist/
         retention-days: 90
 
-  # ===== CONTAINER IMAGES =====
-  docker:
-    name: Build Container Images
-    needs: [validate, security-check]
-    runs-on: ubuntu-latest
-    if: needs.validate.outputs.is-prerelease == 'false'
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ github.repository }}
-        tags: |
-          type=ref,event=tag
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
-
-    - name: Build and push
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
   # ===== CREATE GITHUB RELEASE =====
   release:
     name: Create GitHub Release
-    needs: [validate, build, docker]
+    needs: [validate, build]
     if: always() && needs.validate.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -447,6 +406,5 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Release Type:** ${{ needs.validate.outputs.is-prerelease == 'true' && 'Pre-release' || 'Stable Release' }}" >> $GITHUB_STEP_SUMMARY
         echo "**Platforms:** Linux (x64, ARM64, musl), Windows (x64, ARM64), macOS (Intel, Apple Silicon)" >> $GITHUB_STEP_SUMMARY
-        echo "**Container Images:** Available on GitHub Container Registry" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "[📥 View Release](https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }})" >> $GITHUB_STEP_SUMMARY
