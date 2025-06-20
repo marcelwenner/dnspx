@@ -1,12 +1,19 @@
 # ===== SECURITY AUDIT EXCEPTIONS =====
-# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md):
+# Diese RUSTSEC Advisories werden bewusst ignoriert (siehe SECURITY.md & deny.toml):
 # - RUSTSEC-2023-0071: RSA Marvin Attack - Betrifft nur Windows SSPI Auth, minimales Risiko
+# - RUSTSEC-2021-0145: atty unaligned read - inquire dependency, kein sicherer Upgrade
+# - RUSTSEC-2024-0375: atty unmaintained - inquire dependency, kein sicherer Upgrade
 # - RUSTSEC-2024-0436: paste crate - no longer maintained, aber keine Alternative verfügbar
 # 
 # Quick Reference RUSTSEC-2023-0071:
 # - Windows SSPI only, erfordert lokalen Timing-Angriff
 # - Mitigation durch Basic Auth statt SSPI möglich
 # - Detaillierte Analyse in SECURITY.md
+# 
+# Quick Reference RUSTSEC-2021-0145 & RUSTSEC-2024-0375:
+# - atty crate: unaligned read + unmaintained
+# - inquire dependency, kein sicherer Upgrade-Pfad
+# - Minimale Attack Surface (nur CLI-Prompts)
 # 
 # Quick Reference RUSTSEC-2024-0436:
 # - paste v1.0.15 unmaintained, aber funktional stabil
@@ -37,8 +44,8 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUST_LOG: warn
-  # Security audit exceptions (siehe Header-Kommentare)
-  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2024-0436"
+  # Security audit exceptions (siehe Header-Kommentare und deny.toml)
+  RUSTSEC_IGNORE_LIST: "RUSTSEC-2023-0071,RUSTSEC-2021-0145,RUSTSEC-2024-0375,RUSTSEC-2024-0436"
 
 jobs:
   # ===== SUPER FAST LINT & FORMAT CHECK =====
@@ -118,10 +125,12 @@ jobs:
 
     - name: Quick audit
       run: |
-        echo "🔍 Quick Security Audit (documented exceptions in SECURITY.md)"
+        echo "🔍 Quick Security Audit (documented exceptions in SECURITY.md & deny.toml)"
         echo "   Ignoring: RUSTSEC-2023-0071 (Windows SSPI timing attack)"
+        echo "   Ignoring: RUSTSEC-2021-0145 (atty unaligned read)"
+        echo "   Ignoring: RUSTSEC-2024-0375 (atty unmaintained)"
         echo "   Ignoring: RUSTSEC-2024-0436 (paste crate unmaintained, no alternatives)"
-        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
+        cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2024-0375 --ignore RUSTSEC-2024-0436
 
   # ===== RESULTS =====
   fast-ci-result:
