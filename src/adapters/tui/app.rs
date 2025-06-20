@@ -1652,10 +1652,7 @@ impl TuiApp {
                         if is_quit_event(&key_event) {
                             info!("TUI: Quit event received. Initiating shutdown.");
                             self.should_quit = true;
-                            let app_lifecycle_clone = Arc::clone(&self.app_lifecycle);
-                            tokio::spawn(async move {
-                                app_lifecycle_clone.stop().await;
-                            });
+                            self.app_lifecycle.stop().await;
                             continue;
                         }
                         match key_event.code {
@@ -1857,6 +1854,7 @@ impl TuiApp {
             }
         }
         info!("TUI run loop finished cleanly.");
+        event_manager.shutdown();
         Ok(())
     }
 

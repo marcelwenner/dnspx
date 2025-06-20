@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 pub(crate) struct LocalHostsResolver {
@@ -25,6 +26,7 @@ pub(crate) struct LocalHostsResolver {
     hosts: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>,
     reverse_hosts: Arc<RwLock<HashMap<IpAddr, Vec<String>>>>,
     file_watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
+    shutdown_token: CancellationToken,
 }
 
 impl LocalHostsResolver {
@@ -39,6 +41,7 @@ impl LocalHostsResolver {
             hosts: Arc::new(RwLock::new(hosts_map)),
             reverse_hosts: Arc::new(RwLock::new(reverse_map)),
             file_watcher: Arc::new(Mutex::new(None)),
+            shutdown_token: CancellationToken::new(),
         })
     }
 
@@ -321,6 +324,17 @@ impl LocalHostsResolver {
         Err(())
     }
 
+    pub(crate) async fn shutdown(&self) {
+        info!("LocalHostsResolver: Initiating shutdown...");
+        self.shutdown_token.cancel();
+
+        let mut watcher_lock = self.file_watcher.lock().await;
+        if let Some(watcher) = watcher_lock.take() {
+            drop(watcher);
+            info!("LocalHostsResolver: File watcher stopped.");
+        }
+    }
+
     pub(crate) async fn start_file_watching(self: Arc<Self>) {
         let config_guard = self.config.read().await;
         let hosts_config_opt = config_guard.local_hosts.clone();
@@ -391,18 +405,47 @@ impl LocalHostsResolver {
                             );
                             *watcher_lock = Some(new_watcher);
 
+                            let shutdown_token = resolver_clone.shutdown_token.clone();
                             tokio::spawn(async move {
                                 info!(
                                     "LocalHostsResolver: File watcher event processing task started for {:?}.",
                                     file_path_watch_copy
                                 );
-                                while rx.recv().await.is_some() {
-                                    info!(
-                                        "LocalHostsResolver: Change detected in hosts file {:?}. Debouncing and reloading...",
-                                        file_path_watch_copy
-                                    );
-                                    tokio::time::sleep(Duration::from_millis(250)).await;
-                                    resolver_clone.update_hosts().await;
+                                loop {
+                                    tokio::select! {
+                                        _ = shutdown_token.cancelled() => {
+                                            info!(
+                                                "LocalHostsResolver: File watcher task cancelled for {:?}.",
+                                                file_path_watch_copy
+                                            );
+                                            break;
+                                        }
+                                        event_result = rx.recv() => {
+                                            match event_result {
+                                                Some(_) => {
+                                                    info!(
+                                                        "LocalHostsResolver: Change detected in hosts file {:?}. Debouncing and reloading...",
+                                                        file_path_watch_copy
+                                                    );
+                                                    tokio::select! {
+                                                        _ = shutdown_token.cancelled() => {
+                                                            info!("LocalHostsResolver: Shutdown during debounce for {:?}.", file_path_watch_copy);
+                                                            break;
+                                                        }
+                                                        _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                                                            if !shutdown_token.is_cancelled() {
+                                                                resolver_clone.update_hosts().await;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                None => {
+                                                    info!("LocalHostsResolver: File watcher channel closed for {:?}.", file_path_watch_copy);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 info!(
                                     "LocalHostsResolver: File watcher event processing task stopped for {:?}.",
@@ -486,6 +529,13 @@ impl LocalHostsResolver {
             file_path
         );
         Ok(entries)
+    }
+}
+
+impl Drop for LocalHostsResolver {
+    fn drop(&mut self) {
+        self.shutdown_token.cancel();
+        info!("LocalHostsResolver: Dropped - shutdown token cancelled.");
     }
 }
 

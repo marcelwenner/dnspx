@@ -319,6 +319,16 @@ impl AppLifecycleManager {
                 "AppLifecycleManager: Notifying AWS scan trigger to unblock scanner if waiting."
             );
             self.aws_scan_trigger.notify_waiters();
+
+            info!("AppLifecycleManager: Shutting down components...");
+
+            debug!("AppLifecycleManager: Shutting down LocalHostsResolver...");
+            self.local_hosts_resolver.shutdown().await;
+
+            debug!("AppLifecycleManager: Shutting down ConfigurationManager...");
+            self.config_manager.shutdown().await;
+
+            info!("AppLifecycleManager: Component shutdown completed.");
         }
 
         info!("AppLifecycleManager: Waiting for main tasks to complete...");

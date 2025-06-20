@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
 pub(crate) type ConfigUpdateSignal = ();
 pub(crate) type ConfigUpdateSender = broadcast::Sender<ConfigUpdateSignal>;
 pub(crate) type ConfigUpdateReceiver = broadcast::Receiver<ConfigUpdateSignal>;
@@ -36,6 +37,7 @@ pub(crate) struct ConfigurationManager {
     current_config_hash: Arc<RwLock<String>>,
     reload_request_tx: mpsc::Sender<ReloadRequest>,
     _reload_processor_handle: Option<tokio::task::JoinHandle<()>>,
+    shutdown_token: CancellationToken,
 }
 
 impl ConfigurationManager {
@@ -71,6 +73,7 @@ impl ConfigurationManager {
         let (update_tx, _) = broadcast::channel(16);
         let (reload_request_tx, reload_request_rx) = mpsc::channel(8);
 
+        let shutdown_token = CancellationToken::new();
         let mut manager = Self {
             config: Arc::clone(&config_arc),
             config_store: Arc::clone(&config_store),
@@ -80,6 +83,7 @@ impl ConfigurationManager {
             current_config_hash: Arc::new(RwLock::new(initial_hash.clone())),
             reload_request_tx,
             _reload_processor_handle: None,
+            shutdown_token: shutdown_token.clone(),
         };
 
         let processor_config_arc = Arc::clone(&config_arc);
@@ -95,6 +99,7 @@ impl ConfigurationManager {
             processor_config_file_path_clone,
             processor_current_config_hash,
             processor_update_tx,
+            shutdown_token.clone(),
         ));
         manager._reload_processor_handle = Some(handle);
 
@@ -108,17 +113,49 @@ impl ConfigurationManager {
         config_file_path: PathBuf,
         current_config_hash_arc: Arc<RwLock<String>>,
         update_tx: ConfigUpdateSender,
+        shutdown_token: CancellationToken,
     ) {
         tracing::info!(
             "Config reload processor task started for {:?}.",
             config_file_path
         );
-        while let Some(_request) = rx.recv().await {
-            tracing::debug!(
-                "Reload request received by processor task for {:?}",
-                config_file_path
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        loop {
+            tokio::select! {
+                _ = shutdown_token.cancelled() => {
+                    tracing::info!(
+                        "Config reload processor task cancelled for {:?}.",
+                        config_file_path
+                    );
+                    break;
+                }
+                request_result = rx.recv() => {
+                    match request_result {
+                        Some(_request) => {
+                            tracing::debug!(
+                                "Reload request received by processor task for {:?}",
+                                config_file_path
+                            );
+                            // Debounce with cancellation check
+                            tokio::select! {
+                                _ = shutdown_token.cancelled() => {
+                                    tracing::info!("Config reload processor shutdown during debounce for {:?}.", config_file_path);
+                                    break;
+                                }
+                                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
+                                }
+                            }
+                        }
+                        None => {
+                            tracing::info!("Config reload request channel closed for {:?}.", config_file_path);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if shutdown_token.is_cancelled() {
+                break;
+            }
 
             match config_store.load_app_config_file(&config_file_path) {
                 Ok(new_config) => {
@@ -422,6 +459,17 @@ impl ConfigurationManager {
         &self.config_file_path
     }
 
+    pub(crate) async fn shutdown(&self) {
+        tracing::info!("ConfigurationManager: Initiating shutdown...");
+        self.shutdown_token.cancel();
+
+        let mut watcher_lock = self._watcher.lock().unwrap();
+        if let Some(watcher) = watcher_lock.take() {
+            drop(watcher);
+            tracing::info!("ConfigurationManager: File watcher stopped.");
+        }
+    }
+
     fn validate_config_for_update(config: &AppConfig) -> Result<(), ConfigError> {
         if let Some(aws_conf) = &config.aws {
             let mut labels = HashSet::new();
@@ -482,6 +530,9 @@ impl ConfigurationManager {
 
 impl Drop for ConfigurationManager {
     fn drop(&mut self) {
+        self.shutdown_token.cancel();
+        tracing::info!("ConfigurationManager: Dropped - shutdown token cancelled.");
+
         if let Some(handle) = self._reload_processor_handle.take() {
             tracing::debug!("ConfigurationManager dropped, aborting reload processor task.");
             handle.abort();

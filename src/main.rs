@@ -489,13 +489,35 @@ async fn main() -> anyhow::Result<()> {
             });
 
             let shutdown_token_cli = app_lifecycle_manager.get_cancellation_token();
-            tokio::select! {
-                _ = signal::ctrl_c() => {
-                    user_interaction_port.display_message("Ctrl+C received in CLI mode. Initiating shutdown...", MessageLevel::Info);
-                    app_lifecycle_manager.stop().await;
+            #[cfg(unix)]
+            {
+                let mut sigterm =
+                    signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
+                tokio::select! {
+                    _ = signal::ctrl_c() => {
+                        user_interaction_port.display_message("Ctrl+C received in CLI mode. Initiating shutdown...", MessageLevel::Info);
+                        app_lifecycle_manager.stop().await;
+                    }
+                    _ = sigterm.recv() => {
+                        user_interaction_port.display_message("SIGTERM received in CLI mode. Initiating shutdown...", MessageLevel::Info);
+                        app_lifecycle_manager.stop().await;
+                    }
+                    _ = shutdown_token_cli.cancelled() => {
+                        user_interaction_port.display_message("Shutdown initiated by application logic. Waiting for tasks.", MessageLevel::Info);
+                    }
                 }
-                _ = shutdown_token_cli.cancelled() => {
-                    user_interaction_port.display_message("Shutdown initiated by application logic. Waiting for tasks.", MessageLevel::Info);
+            }
+
+            #[cfg(windows)]
+            {
+                tokio::select! {
+                    _ = signal::ctrl_c() => {
+                        user_interaction_port.display_message("Ctrl+C received in CLI mode. Initiating shutdown...", MessageLevel::Info);
+                        app_lifecycle_manager.stop().await;
+                    }
+                    _ = shutdown_token_cli.cancelled() => {
+                        user_interaction_port.display_message("Shutdown initiated by application logic. Waiting for tasks.", MessageLevel::Info);
+                    }
                 }
             }
             if let Err(e) = cli_task_handle.await {
