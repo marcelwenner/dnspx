@@ -111,4 +111,4 @@ DNSPX is a versatile DNS proxy and resolver designed to provide flexible DNS man
 *   Support for other cloud providers (Azure, GCP).
 *   Persistent cache options.
 
-We encourage users to try out DNSPX and provide feedback, report bugs, or contribute to its development. Please visit our [GitHub repository](https://github.com/nbyx/dnspx) for more information.
+We encourage users to try out DNSPX and provide feedback, report bugs, or contribute to its development. Please visit our [GitHub repository](https://github.com/marcelwenner/dnspx) for more information.
