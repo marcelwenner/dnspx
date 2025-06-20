@@ -137,3 +137,8 @@ rust-project.json
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,rust-analyzer,visualstudiocode,intellij+all
 .DS_Store
+
+# Documentation drafts
+*.md.draft
+**/C*.md
+

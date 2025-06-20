@@ -53,9 +53,9 @@ updates:
           - "patch"
     
     reviewers:
-      - "nbyx"
+      - "marcelwenner"
     assignees:
-      - "nbyx"
+      - "marcelwenner"
     
     labels:
       - "dependencies"
@@ -71,8 +71,6 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-    
-    vendor: true
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -103,9 +101,9 @@ updates:
           - "patch"
     
     reviewers:
-      - "nbyx"
+      - "marcelwenner"
     assignees:
-      - "nbyx"
+      - "marcelwenner"
     
     labels:
       - "dependencies"
