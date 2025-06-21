@@ -89,9 +89,9 @@ jobs:
       shell: bash
       id: release-check
       run: |
-        # Only create development releases for main branch pushes, not tags
+        # Only create development releases for develop branch pushes, not tags
         # Tags are handled by the dedicated release.yml workflow
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]] && [[ "${{ github.event_name }}" == "push" ]]; then
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]] && [[ "${{ github.event_name }}" == "push" ]]; then
           echo "should-release=true" >> $GITHUB_OUTPUT
         else
           echo "should-release=false" >> $GITHUB_OUTPUT
@@ -518,7 +518,7 @@ jobs:
           releases/dnspx-${{ matrix.target }}.*
         retention-days: 90
 
-  # ===== GITHUB RELEASE (MAIN BRANCH + TAGS) =====
+  # ===== GITHUB RELEASE (DEVELOP BRANCH) =====
   github-release:
     name: Create GitHub Release
     if: needs.setup.outputs.should-release == 'true'
@@ -537,7 +537,7 @@ jobs:
         path: artifacts/
         merge-multiple: true
 
-    - name: Generate version for main branch
+    - name: Generate version for develop branch
       id: version
       shell: bash
       run: |
@@ -545,7 +545,7 @@ jobs:
         CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
         echo "Cargo.toml version: $CARGO_VERSION"
         
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
           # Generate dev version: v{CARGO_VERSION}-dev.{SHORT_SHA}.{TIMESTAMP}
           SHORT_SHA=$(git rev-parse --short HEAD)
           TIMESTAMP=$(date +%Y%m%d-%H%M)
@@ -578,14 +578,14 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.version }}"
         
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
           echo "# Development Build $VERSION" > release-notes.md
           echo "" >> release-notes.md
-          echo "🚧 **This is a development build from the main branch**" >> release-notes.md
+          echo "🚧 **This is a development build from the develop branch**" >> release-notes.md
           echo "" >> release-notes.md
           echo "- **Commit**: [\`${{ github.sha }}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})" >> release-notes.md
           echo "- **Built**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> release-notes.md
-          echo "- **Branch**: main" >> release-notes.md
+          echo "- **Branch**: develop" >> release-notes.md
           echo "" >> release-notes.md
           echo "## ⚠️ Development Notice" >> release-notes.md
           echo "" >> release-notes.md
@@ -622,7 +622,7 @@ jobs:
         echo "All binaries include SHA256 checksums (*.sha256 files) for verification." >> release-notes.md
         echo "" >> release-notes.md
         
-        if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+        if [[ "${{ github.ref }}" != "refs/heads/develop" ]]; then
           echo "## 📋 Changes" >> release-notes.md
           echo "" >> release-notes.md
           git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release-notes.md 2>/dev/null || echo "Initial release" >> release-notes.md
