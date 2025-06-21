@@ -23,7 +23,7 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main, develop ]
-    tags: [ 'v*' ]
+    # Tags are handled exclusively by release.yml workflow
   pull_request:
     branches: [ main, develop ]
   schedule:
