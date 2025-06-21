@@ -351,6 +351,18 @@ jobs:
           fi
         done >> ../release-notes.md
 
+    - name: Check if release already exists
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        if gh release view "$VERSION" >/dev/null 2>&1; then
+          echo "❌ Release $VERSION already exists! Use 'gh release edit' to modify existing releases."
+          echo "To avoid accidental overwrites, this workflow will not proceed."
+          exit 1
+        fi
+        echo "✅ Release $VERSION does not exist, proceeding with creation..."
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:

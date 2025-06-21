@@ -89,7 +89,9 @@ jobs:
       shell: bash
       id: release-check
       run: |
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+        # Only create development releases for main branch pushes, not tags
+        # Tags are handled by the dedicated release.yml workflow
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]] && [[ "${{ github.event_name }}" == "push" ]]; then
           echo "should-release=true" >> $GITHUB_OUTPUT
         else
           echo "should-release=false" >> $GITHUB_OUTPUT
@@ -631,6 +633,17 @@ jobs:
           echo "" >> release-notes.md
           git log --oneline -5 >> release-notes.md
         fi
+
+    - name: Check if release already exists
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        if gh release view "$VERSION" >/dev/null 2>&1; then
+          echo "❌ Release $VERSION already exists! Refusing to overwrite."
+          exit 1
+        fi
+        echo "✅ Release $VERSION does not exist, proceeding..."
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create GitHub Release Draft
       uses: softprops/action-gh-release@v2
