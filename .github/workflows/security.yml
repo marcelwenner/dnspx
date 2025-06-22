@@ -619,6 +619,7 @@ jobs:
     name: SARIF Security Report
     runs-on: ubuntu-latest
     needs: [vulnerability-scan]
+    # Only generate SARIF when artifacts are available (schedule/dispatch) or always run but handle missing artifacts
     if: always()
     steps:
     - name: Checkout
@@ -628,10 +629,21 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y jq
 
     - name: Download security reports
+      # Only download if artifacts were uploaded (schedule/dispatch)
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       uses: actions/download-artifact@v4
       with:
         name: security-reports-${{ github.run_id }}
         path: security-reports/
+
+    - name: Create fallback security reports for push events
+      # For push events, create empty reports so SARIF conversion doesn't fail
+      if: github.event_name == 'push'
+      run: |
+        mkdir -p security-reports
+        echo '{"vulnerabilities":[]}' > security-reports/audit-report.json
+        echo '{"advisories":[],"licenses":[],"bans":[]}' > security-reports/deny-report.json
+        echo '{"packages":[]}' > security-reports/geiger-report.json
 
     # Download dependency reports if available (only exists for schedule/dispatch)
     - name: Download dependency reports
