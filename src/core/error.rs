@@ -182,6 +182,12 @@ pub(crate) enum UpdateError {
     InvalidState(String),
     #[error("Health check failed: {0}")]
     HealthCheckFailed(String),
+    #[error("JWT verification failed: {0}")]
+    JwtVerificationFailed(String),
+    #[error("JWKS fetch failed: {0}")]
+    JwksFetchFailed(String),
+    #[error("Invalid JWT format: {0}")]
+    InvalidJwtFormat(String),
 }
 
 impl From<reqwest::Error> for ResolveError {
