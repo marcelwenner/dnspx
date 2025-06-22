@@ -148,29 +148,43 @@ impl ReleaseAnalyzer {
 
     pub(crate) fn should_auto_update(
         &self,
-        metadata: &ReleaseMetadata,
+        policy: &UpdateAutoPolicy,
         current_version: &Version,
-        auto_update_policy: &UpdateAutoPolicy,
+        new_version: &Version,
+        metadata: &ReleaseMetadata,
     ) -> bool {
-        if metadata.has_breaking_changes && !auto_update_policy.allow_breaking_changes {
-            debug!("Skipping auto-update due to breaking changes");
+        // Never allow downgrades
+        if new_version <= current_version {
             return false;
         }
 
-        match auto_update_policy.update_level {
+        // Never allow updates with breaking changes unless explicitly configured
+        if metadata.has_breaking_changes {
+            return false;
+        }
+
+        // Security fixes override update level restrictions (except for major versions)
+        if metadata.security_fixes {
+            // Allow security fixes up to minor version updates regardless of policy
+            if new_version.major == current_version.major {
+                return true;
+            }
+        }
+
+        match policy.update_level {
             UpdateLevel::None => false,
             UpdateLevel::PatchOnly => {
-                metadata.version.major == current_version.major
-                    && metadata.version.minor == current_version.minor
-                    && metadata.version.patch > current_version.patch
+                new_version.major == current_version.major
+                    && new_version.minor == current_version.minor
+                    && new_version.patch > current_version.patch
             }
             UpdateLevel::MinorAndPatch => {
-                metadata.version.major == current_version.major
-                    && (metadata.version.minor > current_version.minor
-                        || (metadata.version.minor == current_version.minor
-                            && metadata.version.patch > current_version.patch))
+                new_version.major == current_version.major
+                    && (new_version.minor > current_version.minor
+                        || (new_version.minor == current_version.minor
+                            && new_version.patch > current_version.patch))
             }
-            UpdateLevel::All => metadata.version > *current_version,
+            UpdateLevel::All => new_version > current_version,
         }
     }
 }

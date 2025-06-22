@@ -88,6 +88,7 @@ dirs = "6.0.0"
 futures = "0.3.31"
 pulldown-cmark = "0.13.0"
 base64 = "0.22"
+jsonwebtoken = "9.2"
 
 # Auto-update functionality
 self_update = { version = "0.41", features = ["archive-tar", "archive-zip", "rustls"], default-features = false }

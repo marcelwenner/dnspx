@@ -174,6 +174,14 @@ pub(crate) enum UpdateError {
     BreakingChanges,
     #[error("Self-update library error: {0}")]
     SelfUpdate(Box<dyn std::error::Error + Send + Sync>),
+    #[error("Security validation failed: {0}")]
+    SecurityValidationFailed(String),
+    #[error("Feature not implemented: {0}")]
+    NotImplemented(String),
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+    #[error("Health check failed: {0}")]
+    HealthCheckFailed(String),
 }
 
 impl From<reqwest::Error> for ResolveError {

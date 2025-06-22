@@ -573,6 +573,10 @@ fn default_github_repo() -> String {
     "mwenner/dnspx".to_string()
 }
 
+fn default_trusted_builders() -> Vec<String> {
+    vec!["https://github.com/actions/runner".to_string()]
+}
+
 fn default_check_interval() -> Duration {
     Duration::from_secs(4 * 60 * 60) // 4 hours
 }
@@ -598,6 +602,16 @@ pub(crate) struct UpdateSecurityConfig {
     pub verify_signatures: bool,
     #[serde(default)]
     pub require_attestations: bool,
+    #[serde(default = "default_trusted_builders")]
+    pub trusted_builders: Vec<String>,
+    #[serde(default = "default_github_repo")]
+    pub attestation_repo: String,
+    #[serde(default)]
+    pub require_slsa_level: u8,
+    #[serde(default = "default_allowed_domains")]
+    pub allowed_update_domains: Vec<String>,
+    #[serde(default = "default_max_download_size")]
+    pub max_download_size_mb: u64,
 }
 
 impl Default for UpdateSecurityConfig {
@@ -606,6 +620,11 @@ impl Default for UpdateSecurityConfig {
             verify_checksums: default_true(),
             verify_signatures: false,
             require_attestations: false,
+            trusted_builders: default_trusted_builders(),
+            attestation_repo: default_github_repo(),
+            require_slsa_level: 0,
+            allowed_update_domains: default_allowed_domains(),
+            max_download_size_mb: default_max_download_size(),
         }
     }
 }
@@ -647,6 +666,14 @@ fn default_keep_backups() -> u32 {
 
 fn default_health_check_timeout() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_allowed_domains() -> Vec<String> {
+    vec!["github.com".to_string(), "api.github.com".to_string()]
+}
+
+fn default_max_download_size() -> u64 {
+    100 // 100 MB
 }
 
 impl Default for UpdateRollbackConfig {
