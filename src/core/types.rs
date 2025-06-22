@@ -70,6 +70,7 @@ pub(crate) struct AppStatus {
     pub active_listeners: Vec<String>,
     pub cache_stats: Option<CacheStats>,
     pub active_config_hash: String,
+    pub update_status: Option<UpdateStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -87,6 +88,12 @@ pub(crate) enum CliCommand {
     ReloadConfig,
     TriggerAwsScan,
     GetConfig(Option<String>),
+    UpdateCheck,
+    UpdateInstall,
+    UpdateStatus,
+    UpdateRollback,
+    Help,
+    UpdateHelp,
     Exit,
 }
 
@@ -124,4 +131,55 @@ impl AwsAuthMethod {
             AwsAuthMethod::IamRole => AwsAuthMethod::AccessKeys,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct UpdateStatus {
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub last_check_time: Option<DateTime<Utc>>,
+    pub update_available: bool,
+    pub checking_for_updates: bool,
+    pub installing_update: bool,
+    pub last_error: Option<String>,
+    pub rollback_available: bool,
+}
+
+impl Default for UpdateStatus {
+    fn default() -> Self {
+        Self {
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            latest_version: None,
+            last_check_time: None,
+            update_available: false,
+            checking_for_updates: false,
+            installing_update: false,
+            last_error: None,
+            rollback_available: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct UpdateInfo {
+    pub version: String,
+    pub download_url: String,
+    pub checksum: Option<String>,
+    pub signature_url: Option<String>,
+    pub release_notes: Option<String>,
+    pub breaking_changes: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum UpdateResult {
+    UpToDate,
+    UpdateAvailable(UpdateInfo),
+    UpdateInstalled {
+        from_version: String,
+        to_version: String,
+    },
+    UpdateFailed {
+        error: String,
+        rollback_performed: bool,
+    },
 }

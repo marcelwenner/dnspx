@@ -5,3 +5,4 @@ pub(crate) mod resolver;
 pub(crate) mod server;
 pub(crate) mod status;
 pub(crate) mod tui;
+pub(crate) mod update;

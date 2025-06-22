@@ -581,6 +581,10 @@ mod integration_tests {
             unimplemented!("AwsConfigProvider not needed in this test mock")
         }
 
+        fn get_update_manager(&self) -> Option<Arc<dyn crate::ports::UpdateManagerPort>> {
+            None // Test mock - no update manager
+        }
+
         async fn get_config_for_processor(&self) -> Arc<RwLock<AppConfig>> {
             self.config.clone()
         }
@@ -623,6 +627,7 @@ mod integration_tests {
             aws: None,
             logging: LoggingConfig::default(),
             cli: CliConfig::default(),
+            update: None,
         }
     }
 

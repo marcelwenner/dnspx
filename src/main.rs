@@ -20,6 +20,7 @@ use crate::adapters::tui::{
     app::TuiApp, app::TuiUserInteractionAdapter as TuiInteraction, event::EventManager,
     logging::TuiLoggingLayer,
 };
+use crate::adapters::update::manager::VerifiedUpdateManager;
 use crate::app_lifecycle::AppLifecycleManager;
 use crate::aws_integration::scanner::AwsVpcScannerTask;
 use crate::config::models::{AppConfig, LogFormat, LoggingConfig};
@@ -403,6 +404,53 @@ async fn main() -> anyhow::Result<()> {
             scanner_task.run().await;
         });
         app_lifecycle_manager.add_task(scanner_handle).await;
+    }
+
+    // Initialize update manager if update configuration is present
+    let update_config = app_lifecycle_manager
+        .get_config()
+        .read()
+        .await
+        .update
+        .clone();
+    if let Some(update_config) = update_config {
+        if update_config.enabled {
+            user_interaction_port.display_message("Starting update manager.", MessageLevel::Info);
+
+            let http_client = reqwest::Client::new();
+            let current_binary_path =
+                std::env::current_exe().unwrap_or_else(|_| PathBuf::from("dnspx"));
+            let backup_dir = std::env::temp_dir().join("dnspx_backups");
+
+            let update_manager = Arc::new(VerifiedUpdateManager::new(
+                update_config,
+                http_client,
+                current_binary_path,
+                backup_dir,
+            ));
+
+            // Set the update manager in the app lifecycle manager
+            let update_manager_port: Arc<dyn crate::ports::UpdateManagerPort> =
+                update_manager.clone();
+            app_lifecycle_manager_impl
+                .set_update_manager(update_manager_port)
+                .await;
+
+            // Start background update checker task
+            let update_manager_clone = Arc::clone(&update_manager);
+            let app_lifecycle_clone = Arc::clone(&app_lifecycle_manager);
+            let update_handle = tokio::spawn(async move {
+                update_manager_clone
+                    .run_background_checker(app_lifecycle_clone)
+                    .await;
+            });
+            app_lifecycle_manager.add_task(update_handle).await;
+        }
+    } else {
+        user_interaction_port.display_message(
+            "No update configuration found. Automatic updates disabled.",
+            MessageLevel::Info,
+        );
     }
 
     let app_lifecycle_manager_clone_udp = Arc::clone(&app_lifecycle_manager);

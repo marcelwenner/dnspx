@@ -1,4 +1,4 @@
-use crate::core::types::{AppStatus, AwsScannerStatus, CacheStats, ConfigStatus};
+use crate::core::types::{AppStatus, AwsScannerStatus, CacheStats, ConfigStatus, UpdateStatus};
 use crate::ports::StatusReporterPort;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 pub(crate) struct InMemoryStatusStoreAdapter {
     aws_status: Arc<RwLock<AwsScannerStatus>>,
     config_status: Arc<RwLock<ConfigStatus>>,
+    update_status: Arc<RwLock<UpdateStatus>>,
 }
 
 impl InMemoryStatusStoreAdapter {
@@ -15,6 +16,7 @@ impl InMemoryStatusStoreAdapter {
         Self {
             aws_status: Arc::new(RwLock::new(AwsScannerStatus::default())),
             config_status: Arc::new(RwLock::new(ConfigStatus::default())),
+            update_status: Arc::new(RwLock::new(UpdateStatus::default())),
         }
     }
 }
@@ -39,6 +41,15 @@ impl StatusReporterPort for InMemoryStatusStoreAdapter {
         self.config_status.read().await.clone()
     }
 
+    async fn report_update_status(&self, status: UpdateStatus) {
+        let mut guard = self.update_status.write().await;
+        *guard = status;
+    }
+
+    async fn get_update_status(&self) -> UpdateStatus {
+        self.update_status.read().await.clone()
+    }
+
     async fn get_full_app_status(
         &self,
         uptime_seconds: u64,
@@ -48,6 +59,7 @@ impl StatusReporterPort for InMemoryStatusStoreAdapter {
     ) -> AppStatus {
         let config_guard = self.config_status.read().await;
         let aws_guard = self.aws_status.read().await;
+        let update_guard = self.update_status.read().await;
         AppStatus {
             config_status: config_guard.clone(),
             aws_scanner_status: Some(aws_guard.clone()),
@@ -55,6 +67,7 @@ impl StatusReporterPort for InMemoryStatusStoreAdapter {
             active_listeners,
             cache_stats,
             active_config_hash: config_hash,
+            update_status: Some(update_guard.clone()),
         }
     }
 }

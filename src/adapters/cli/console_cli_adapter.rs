@@ -1,5 +1,5 @@
 use crate::core::error::{CliError, UserInputError};
-use crate::core::types::{AppStatus, CliCommand, CliOutput, MessageLevel};
+use crate::core::types::{AppStatus, CliCommand, CliOutput, MessageLevel, UpdateResult};
 use crate::ports::{AppLifecycleManagerPort, InteractiveCliPort, UserInteractionPort};
 use async_trait::async_trait;
 use colored::*;
@@ -20,6 +20,60 @@ impl ConsoleCliAdapter {
             text.color(color)
         } else {
             text.normal()
+        }
+    }
+
+    fn display_general_help(&self) {
+        println!(
+            "{}",
+            self.colorize("Available Commands:", Color::Green).bold()
+        );
+        println!();
+
+        let commands = [
+            ("help, h", "Show this help message"),
+            ("status, s", "Show application status"),
+            ("reload, r", "Reload configuration"),
+            ("scan", "Trigger AWS resource scan"),
+            ("aws scan", "Trigger AWS resource scan"),
+            ("config", "Show current configuration"),
+            ("update", "Show update help"),
+            ("exit, quit, q", "Exit the application"),
+        ];
+
+        for (cmd, desc) in commands {
+            println!("  {:<15} {}", self.colorize(cmd, Color::Yellow), desc);
+        }
+
+        println!();
+        println!(
+            "For update commands, type: {}",
+            self.colorize("update help", Color::Cyan)
+        );
+    }
+
+    fn display_update_help(&self) {
+        println!("{}", self.colorize("Usage:", Color::Green).bold());
+        println!("  update <subcommand>");
+        println!();
+        println!("{}", self.colorize("Subcommands:", Color::Green).bold());
+
+        let subcommands = [
+            ("check", "Check for new updates"),
+            (
+                "install",
+                "Download and install the latest available update",
+            ),
+            (
+                "status",
+                "Show the current version and update configuration",
+            ),
+            ("rollback", "Revert to the previously installed version"),
+            ("help", "Show this help message"),
+        ];
+
+        for (cmd, desc) in subcommands {
+            println!("  {:<15} {}", self.colorize(cmd, Color::Yellow), desc);
         }
     }
 
@@ -63,6 +117,12 @@ impl ConsoleCliAdapter {
                 "reload" | "r" => CliCommand::ReloadConfig,
                 "scan" | "aws scan" => CliCommand::TriggerAwsScan,
                 "config" => CliCommand::GetConfig(None),
+                "update check" => CliCommand::UpdateCheck,
+                "update install" => CliCommand::UpdateInstall,
+                "update status" => CliCommand::UpdateStatus,
+                "update rollback" => CliCommand::UpdateRollback,
+                "update help" | "update" => CliCommand::UpdateHelp,
+                "help" | "h" => CliCommand::Help,
                 "exit" | "quit" | "q" => CliCommand::Exit,
                 "" => continue,
                 _ => {
@@ -398,6 +458,151 @@ impl InteractiveCliPort for ConsoleCliAdapter {
             CliCommand::GetConfig(_path) => {
                 let config = app_lifecycle.get_config();
                 Ok(CliOutput::Config(config))
+            }
+            CliCommand::UpdateCheck => {
+                if let Some(update_manager) = app_lifecycle.get_update_manager() {
+                    match update_manager.check_for_updates().await {
+                        Ok(UpdateResult::UpdateAvailable(update_info)) => {
+                            let mut message = format!(
+                                "Update available: v{} -> v{}\n",
+                                update_manager.get_current_version(),
+                                update_info.version
+                            );
+                            if update_info.breaking_changes {
+                                message.push_str("⚠️  This update contains breaking changes.\n");
+                            }
+                            if let Some(release_notes) = &update_info.release_notes {
+                                message.push_str(&format!("\nRelease Notes:\n{}", release_notes));
+                            }
+                            message.push_str("\nUse 'update install' to install this update.");
+                            Ok(CliOutput::Message(message))
+                        }
+                        Ok(UpdateResult::UpToDate) => Ok(CliOutput::Message(format!(
+                            "Already up to date: v{}",
+                            update_manager.get_current_version()
+                        ))),
+                        Err(e) => Err(CliError::UpdateFailed(format!(
+                            "Update check failed: {}",
+                            e
+                        ))),
+                        _ => Ok(CliOutput::Message("Unexpected update result".to_string())),
+                    }
+                } else {
+                    Ok(CliOutput::Message(
+                        "Update manager not available. Check your configuration.".to_string(),
+                    ))
+                }
+            }
+            CliCommand::UpdateInstall => {
+                if let Some(update_manager) = app_lifecycle.get_update_manager() {
+                    match update_manager.check_for_updates().await {
+                        Ok(UpdateResult::UpdateAvailable(update_info)) => {
+                            match update_manager.install_update(&update_info).await {
+                                Ok(UpdateResult::UpdateInstalled {
+                                    from_version,
+                                    to_version,
+                                }) => Ok(CliOutput::Message(format!(
+                                    "Successfully updated from v{} to v{}. Restart required.",
+                                    from_version, to_version
+                                ))),
+                                Ok(UpdateResult::UpdateFailed {
+                                    error,
+                                    rollback_performed,
+                                }) => Ok(CliOutput::Message(format!(
+                                    "Update failed: {}. Rollback performed: {}",
+                                    error, rollback_performed
+                                ))),
+                                Err(e) => Err(CliError::UpdateFailed(format!(
+                                    "Installation failed: {}",
+                                    e
+                                ))),
+                                _ => Ok(CliOutput::Message(
+                                    "Unexpected installation result".to_string(),
+                                )),
+                            }
+                        }
+                        Ok(UpdateResult::UpToDate) => Ok(CliOutput::Message(
+                            "Already up to date. No installation needed.".to_string(),
+                        )),
+                        Err(e) => Err(CliError::UpdateFailed(format!(
+                            "Update check failed: {}",
+                            e
+                        ))),
+                        _ => Ok(CliOutput::Message(
+                            "Unexpected update check result".to_string(),
+                        )),
+                    }
+                } else {
+                    Ok(CliOutput::Message(
+                        "Update manager not available. Check your configuration.".to_string(),
+                    ))
+                }
+            }
+            CliCommand::UpdateStatus => {
+                if let Some(update_manager) = app_lifecycle.get_update_manager() {
+                    let current_version = update_manager.get_current_version();
+                    let rollback_available = update_manager.is_rollback_available().await;
+
+                    let config_arc = app_lifecycle.get_config();
+                    let config = config_arc.read().await;
+                    let auto_update_enabled = config
+                        .update
+                        .as_ref()
+                        .map(|u| {
+                            u.auto_update_policy.update_level
+                                != crate::config::models::UpdateLevel::None
+                        })
+                        .unwrap_or(false);
+                    let check_interval = config
+                        .update
+                        .as_ref()
+                        .map(|u| format!("{:?}", u.check_interval))
+                        .unwrap_or_else(|| "N/A".to_string());
+
+                    let status_message = format!(
+                        "Update Status:\n  Current Version: v{}\n  Auto-update: {}\n  Check Interval: {}\n  Rollback Available: {}",
+                        current_version,
+                        if auto_update_enabled {
+                            "Enabled"
+                        } else {
+                            "Disabled"
+                        },
+                        check_interval,
+                        if rollback_available { "Yes" } else { "No" }
+                    );
+                    Ok(CliOutput::Message(status_message))
+                } else {
+                    Ok(CliOutput::Message(
+                        "Update manager not available. Check your configuration.".to_string(),
+                    ))
+                }
+            }
+            CliCommand::UpdateRollback => {
+                if let Some(update_manager) = app_lifecycle.get_update_manager() {
+                    match update_manager.rollback_update().await {
+                        Ok(UpdateResult::UpdateInstalled {
+                            from_version,
+                            to_version,
+                        }) => Ok(CliOutput::Message(format!(
+                            "Successfully rolled back from v{} to v{}. Restart required.",
+                            from_version, to_version
+                        ))),
+                        Err(e) => Err(CliError::UpdateFailed(format!("Rollback failed: {}", e))),
+                        _ => Ok(CliOutput::Message("Unexpected rollback result".to_string())),
+                    }
+                } else {
+                    Ok(CliOutput::Message(
+                        "Update manager not available. Check your configuration.".to_string(),
+                    ))
+                }
+            }
+            CliCommand::Help => {
+                self.display_general_help();
+                Ok(CliOutput::None)
+            }
+            CliCommand::UpdateHelp => {
+                self.display_update_help();
+                Ok(CliOutput::None)
             }
             CliCommand::Exit => Ok(CliOutput::Message("Initiating shutdown...".to_string())),
         }

@@ -202,6 +202,7 @@ pub(crate) struct AppConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub cli: CliConfig,
+    pub update: Option<UpdateConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -548,6 +549,113 @@ impl Default for CliConfig {
         Self {
             enable_colors: default_true(),
             status_refresh_interval_secs: default_status_refresh_interval_secs(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UpdateConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_github_repo")]
+    pub github_repo: String,
+    #[serde(with = "humantime_serde", default = "default_check_interval")]
+    pub check_interval: Duration,
+    #[serde(default)]
+    pub security: UpdateSecurityConfig,
+    #[serde(default)]
+    pub auto_update_policy: UpdateAutoPolicy,
+    #[serde(default)]
+    pub rollback: UpdateRollbackConfig,
+}
+
+fn default_github_repo() -> String {
+    "mwenner/dnspx".to_string()
+}
+
+fn default_check_interval() -> Duration {
+    Duration::from_secs(4 * 60 * 60) // 4 hours
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            github_repo: default_github_repo(),
+            check_interval: default_check_interval(),
+            security: UpdateSecurityConfig::default(),
+            auto_update_policy: UpdateAutoPolicy::default(),
+            rollback: UpdateRollbackConfig::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UpdateSecurityConfig {
+    #[serde(default = "default_true")]
+    pub verify_checksums: bool,
+    #[serde(default)]
+    pub verify_signatures: bool,
+    #[serde(default)]
+    pub require_attestations: bool,
+}
+
+impl Default for UpdateSecurityConfig {
+    fn default() -> Self {
+        Self {
+            verify_checksums: default_true(),
+            verify_signatures: false,
+            require_attestations: false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) struct UpdateAutoPolicy {
+    #[serde(default)]
+    pub update_level: UpdateLevel,
+    #[serde(default)]
+    pub allow_breaking_changes: bool,
+    #[serde(default)]
+    pub require_security_approval: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) enum UpdateLevel {
+    None,
+    #[default]
+    PatchOnly,
+    MinorAndPatch,
+    All,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UpdateRollbackConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_keep_backups")]
+    pub keep_backups: u32,
+    #[serde(with = "humantime_serde", default = "default_health_check_timeout")]
+    pub health_check_timeout: Duration,
+    #[serde(default = "default_true")]
+    pub health_check_enabled: bool,
+}
+
+fn default_keep_backups() -> u32 {
+    3
+}
+
+fn default_health_check_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+
+impl Default for UpdateRollbackConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            keep_backups: default_keep_backups(),
+            health_check_timeout: default_health_check_timeout(),
+            health_check_enabled: default_true(),
         }
     }
 }

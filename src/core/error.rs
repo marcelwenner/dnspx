@@ -143,6 +143,37 @@ pub(crate) enum CliError {
     Display(String),
     #[error("Application lifecycle error: {0}")]
     Lifecycle(String),
+    #[error("Update operation failed: {0}")]
+    UpdateFailed(String),
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum UpdateError {
+    #[error("Failed to check for updates: {0}")]
+    CheckFailed(String),
+    #[error("Failed to download update: {0}")]
+    DownloadFailed(String),
+    #[error("Security validation failed: {0}")]
+    SecurityValidation(String),
+    #[error("Update installation failed: {0}")]
+    InstallationFailed(String),
+    #[error("Rollback failed: {0}")]
+    RollbackFailed(String),
+    #[error("Network error during update: {0}")]
+    Network(#[from] reqwest::Error),
+    #[error("File system error: {path} - {source}")]
+    FileSystem {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("Invalid version format: {0}")]
+    InvalidVersion(String),
+    #[error("Update not available")]
+    NotAvailable,
+    #[error("Update contains breaking changes and auto-update is disabled for breaking changes")]
+    BreakingChanges,
+    #[error("Self-update library error: {0}")]
+    SelfUpdate(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<reqwest::Error> for ResolveError {
