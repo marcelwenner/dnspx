@@ -202,6 +202,7 @@ pub(crate) struct AppConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub cli: CliConfig,
+    pub update: Option<UpdateConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -548,6 +549,140 @@ impl Default for CliConfig {
         Self {
             enable_colors: default_true(),
             status_refresh_interval_secs: default_status_refresh_interval_secs(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UpdateConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_github_repo")]
+    pub github_repo: String,
+    #[serde(with = "humantime_serde", default = "default_check_interval")]
+    pub check_interval: Duration,
+    #[serde(default)]
+    pub security: UpdateSecurityConfig,
+    #[serde(default)]
+    pub auto_update_policy: UpdateAutoPolicy,
+    #[serde(default)]
+    pub rollback: UpdateRollbackConfig,
+}
+
+fn default_github_repo() -> String {
+    "mwenner/dnspx".to_string()
+}
+
+fn default_trusted_builders() -> Vec<String> {
+    vec!["https://github.com/actions/runner".to_string()]
+}
+
+fn default_check_interval() -> Duration {
+    Duration::from_secs(4 * 60 * 60)
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            github_repo: default_github_repo(),
+            check_interval: default_check_interval(),
+            security: UpdateSecurityConfig::default(),
+            auto_update_policy: UpdateAutoPolicy::default(),
+            rollback: UpdateRollbackConfig::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UpdateSecurityConfig {
+    #[serde(default = "default_true")]
+    pub verify_checksums: bool,
+    #[serde(default)]
+    pub verify_signatures: bool,
+    #[serde(default)]
+    pub require_attestations: bool,
+    #[serde(default = "default_trusted_builders")]
+    pub trusted_builders: Vec<String>,
+    #[serde(default = "default_github_repo")]
+    pub attestation_repo: String,
+    #[serde(default)]
+    pub require_slsa_level: u8,
+    #[serde(default = "default_allowed_domains")]
+    pub allowed_update_domains: Vec<String>,
+    #[serde(default = "default_max_download_size")]
+    pub max_download_size_mb: u64,
+}
+
+impl Default for UpdateSecurityConfig {
+    fn default() -> Self {
+        Self {
+            verify_checksums: default_true(),
+            verify_signatures: false,
+            require_attestations: false,
+            trusted_builders: default_trusted_builders(),
+            attestation_repo: default_github_repo(),
+            require_slsa_level: 0,
+            allowed_update_domains: default_allowed_domains(),
+            max_download_size_mb: default_max_download_size(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) struct UpdateAutoPolicy {
+    #[serde(default)]
+    pub update_level: UpdateLevel,
+    #[serde(default)]
+    pub allow_breaking_changes: bool,
+    #[serde(default)]
+    pub require_security_approval: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) enum UpdateLevel {
+    None,
+    #[default]
+    PatchOnly,
+    MinorAndPatch,
+    All,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct UpdateRollbackConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_keep_backups")]
+    pub keep_backups: u32,
+    #[serde(with = "humantime_serde", default = "default_health_check_timeout")]
+    pub health_check_timeout: Duration,
+    #[serde(default = "default_true")]
+    pub health_check_enabled: bool,
+}
+
+fn default_keep_backups() -> u32 {
+    3
+}
+
+fn default_health_check_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_allowed_domains() -> Vec<String> {
+    vec!["github.com".to_string(), "api.github.com".to_string()]
+}
+
+fn default_max_download_size() -> u64 {
+    100 // MB(!)
+}
+
+impl Default for UpdateRollbackConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            keep_backups: default_keep_backups(),
+            health_check_timeout: default_health_check_timeout(),
+            health_check_enabled: default_true(),
         }
     }
 }

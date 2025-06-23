@@ -1,5 +1,35 @@
 # DNSPX Release Notes
 
+## Version 0.9.1 - CLI Help System & Update Manager Improvements
+
+### New Features
+- **Enhanced CLI Help System:**
+  - Added `help` and `h` commands for general help information
+  - Added `update help` and `update` commands for update-specific help
+  - Comprehensive command overview with descriptions and shortcuts
+  - Color-coded output for better readability
+
+### Improvements
+- **Update Manager Enhancements:**
+  - Fixed build errors related to self_update crate integration
+  - Improved pattern matching for all UpdateResult variants
+  - Enhanced error handling in update transaction operations
+  - Better support for binary replacement using self_update::Move API
+  - Corrected rollback functionality with proper error handling
+
+### Bug Fixes
+- Fixed non-exhaustive pattern matching in update manager
+- Resolved mismatched types in update transaction operations
+- Fixed missing trait implementations in test mocks
+- Eliminated compiler warnings and clippy suggestions
+
+### Technical Improvements
+- Updated test mocks to include new `get_update_manager` method
+- Improved code formatting and style consistency
+- Enhanced build reliability across all targets and features
+
+---
+
 ## Version 0.9.0 - Initial Public Release
 
 We are excited to announce the initial public release of **DNSPX version 0.9.0**!

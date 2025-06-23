@@ -6,12 +6,12 @@ use crate::config::models::{
 use crate::core::dns_cache::DnsCache;
 use crate::core::error::{
     AwsApiError, AwsAuthError, CliError, ConfigError, DnsProcessingError, ResolveError,
-    UserInputError,
+    UpdateError, UserInputError,
 };
 use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::types::{
     AppStatus, AwsCredentials, AwsScannerStatus, CacheStats, CliCommand, CliOutput, ConfigStatus,
-    MessageLevel, ProtocolType,
+    MessageLevel, ProtocolType, UpdateInfo, UpdateResult, UpdateStatus,
 };
 use crate::dns_protocol::{DnsMessage, DnsQuestion};
 use async_trait::async_trait;
@@ -57,6 +57,7 @@ pub(crate) trait AppLifecycleManagerPort: Send + Sync {
     ) -> Result<(), ConfigError>;
     async fn get_app_status(&self) -> AppStatus;
     fn get_aws_config_provider(&self) -> Arc<dyn AwsConfigProvider>;
+    fn get_update_manager(&self) -> Option<Arc<dyn UpdateManagerPort>>;
 
     async fn get_config_for_processor(&self) -> Arc<RwLock<AppConfig>>;
     fn increment_total_queries_processed(&self);
@@ -184,6 +185,8 @@ pub(crate) trait StatusReporterPort: Send + Sync {
     async fn get_aws_scanner_status(&self) -> AwsScannerStatus;
     async fn report_config_status(&self, status: ConfigStatus);
     async fn get_config_status(&self) -> ConfigStatus;
+    async fn report_update_status(&self, status: UpdateStatus);
+    async fn get_update_status(&self) -> UpdateStatus;
     async fn get_full_app_status(
         &self,
         uptime_seconds: u64,
@@ -191,4 +194,13 @@ pub(crate) trait StatusReporterPort: Send + Sync {
         config_hash: String,
         cache_stats: Option<CacheStats>,
     ) -> AppStatus;
+}
+
+#[async_trait]
+pub(crate) trait UpdateManagerPort: Send + Sync {
+    async fn check_for_updates(&self) -> Result<UpdateResult, UpdateError>;
+    async fn install_update(&self, update_info: &UpdateInfo) -> Result<UpdateResult, UpdateError>;
+    async fn rollback_update(&self) -> Result<UpdateResult, UpdateError>;
+    fn get_current_version(&self) -> String;
+    async fn is_rollback_available(&self) -> bool;
 }

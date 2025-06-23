@@ -7,7 +7,8 @@ use crate::core::error::{CliError, ConfigError};
 use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::types::{AppStatus, AwsScannerStatus, ConfigStatus, MessageLevel};
 use crate::ports::{
-    AppLifecycleManagerPort, AwsConfigProvider, StatusReporterPort, UserInteractionPort,
+    AppLifecycleManagerPort, AwsConfigProvider, StatusReporterPort, UpdateManagerPort,
+    UserInteractionPort,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -34,6 +35,7 @@ pub(crate) struct AppLifecycleManager {
     total_queries_processed: Arc<AtomicU64>,
     pub discovered_aws_network_info: Arc<RwLock<DiscoveredAwsNetworkInfo>>,
     pub aws_config_provider: Arc<dyn AwsConfigProvider>,
+    update_manager: Arc<Mutex<Option<Arc<dyn UpdateManagerPort>>>>,
 }
 
 #[async_trait]
@@ -128,6 +130,13 @@ impl AppLifecycleManagerPort for AppLifecycleManager {
         Arc::clone(&self.aws_config_provider)
     }
 
+    fn get_update_manager(&self) -> Option<Arc<dyn UpdateManagerPort>> {
+        match self.update_manager.try_lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        }
+    }
+
     async fn add_task(&self, handle: JoinHandle<()>) {
         self.add_task(handle).await;
     }
@@ -178,6 +187,7 @@ impl AppLifecycleManager {
             total_queries_processed: Arc::new(AtomicU64::new(0)),
             discovered_aws_network_info: Arc::new(RwLock::new(DiscoveredAwsNetworkInfo::default())),
             aws_config_provider,
+            update_manager: Arc::new(Mutex::new(None)),
         });
 
         let app_manager_clone = Arc::clone(&app_manager);
@@ -186,6 +196,11 @@ impl AppLifecycleManager {
         });
 
         app_manager
+    }
+
+    pub(crate) async fn set_update_manager(&self, update_manager: Arc<dyn UpdateManagerPort>) {
+        let mut guard = self.update_manager.lock().await;
+        *guard = Some(update_manager);
     }
 
     fn increment_total_queries_processed_internal(&self) {

@@ -416,7 +416,7 @@ impl DohClientAdapter {
                                             attempt, url
                                         );
                                     }
-                                    current_request_builder // Unverändert
+                                    current_request_builder
                                 }
                                 Err(e) => return Err(e),
                             }
@@ -1090,19 +1090,18 @@ mod integration_tests {
 
         assert!(result.is_err(), "Expected timeout-related error");
 
-        // Akzeptiere alle timeout-relevanten Error-Typen
         match result.unwrap_err() {
             ResolveError::Timeout { .. } => {
-                // Direct timeout - expected
+                // Direct timeout. Expected
             }
             ResolveError::Network(_) => {
-                // HTTP client timeout - also valid
+                // HTTP client timeout. Also valid
             }
             ResolveError::Protocol(_) => {
-                // DNS protocol-level timeout - platform specific
+                // DNS protocol-level timeout. Platform specific
             }
             ResolveError::UpstreamServer { .. } => {
-                // Server error due to timeout - also valid
+                // Server error due to timeout. Also valid
             }
             other => {
                 panic!("Unexpected error type for timeout test: {:?}", other);
@@ -1500,41 +1499,33 @@ mod sspi_integration_tests {
         let manager = SspiAuthManager::new_for_current_user("test.example.com".to_string())
             .expect("Should create manager");
 
-        // Initial state should always be Initial
         assert!(matches!(
             manager.get_auth_state().await,
             SspiAuthState::Initial
         ));
         assert!(!manager.is_authenticated().await);
 
-        // Try to get initial token - this might fail in test environment
         let token_result = manager.get_initial_token().await;
 
-        // The state after token generation can be either successful states or Failed
-        // depending on the test environment (SSPI infrastructure availability)
         let state_after_token = manager.get_auth_state().await;
         match state_after_token {
             SspiAuthState::NegotiateSent
             | SspiAuthState::Authenticated
             | SspiAuthState::ChallengeReceived => {
-                // SSPI is working properly - continue with success path testing
                 assert!(
                     token_result.is_ok(),
                     "Token generation should succeed in working SSPI environment"
                 );
             }
             SspiAuthState::Failed(ref _msg) => {
-                // SSPI failed (likely no proper infrastructure) - this is acceptable in test environment
                 assert!(
                     token_result.is_err(),
                     "Token generation should fail when SSPI infrastructure is not available"
                 );
-                // Skip the rest of the test as SSPI is not functional
+
                 return;
             }
             SspiAuthState::Initial => {
-                // On non-Windows platforms, the mock implementation might keep the state as Initial
-                // This is acceptable behavior for mock implementations
                 #[cfg(not(windows))]
                 {
                     assert!(token_result.is_err(), "Mock should fail token generation");
@@ -1551,14 +1542,11 @@ mod sspi_integration_tests {
             }
         }
 
-        // Only continue if SSPI is working (Windows only)
-        // Test manual state setting - but this might not be available in mock
         #[cfg(windows)]
         {
             manager.set_auth_state(SspiAuthState::Authenticated).await;
             assert!(manager.is_authenticated().await);
 
-            // Test reset functionality
             manager.reset().await;
             assert!(matches!(
                 manager.get_auth_state().await,
