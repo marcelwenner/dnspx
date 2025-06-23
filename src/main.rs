@@ -8,6 +8,9 @@ mod core;
 mod dns_protocol;
 mod ports;
 
+#[cfg(test)]
+mod app_lifecycle_tests;
+
 use crate::adapters::aws::credentials_provider::AwsSdkConfigProvider;
 use crate::adapters::aws::vpc_info_provider::AwsSdkVpcInfoProvider;
 use crate::adapters::cli::console_cli_adapter::ConsoleCliAdapter;
@@ -406,7 +409,6 @@ async fn main() -> anyhow::Result<()> {
         app_lifecycle_manager.add_task(scanner_handle).await;
     }
 
-    // Initialize update manager if update configuration is present
     let update_config = app_lifecycle_manager
         .get_config()
         .read()
@@ -429,14 +431,12 @@ async fn main() -> anyhow::Result<()> {
                 backup_dir,
             ));
 
-            // Set the update manager in the app lifecycle manager
             let update_manager_port: Arc<dyn crate::ports::UpdateManagerPort> =
                 update_manager.clone();
             app_lifecycle_manager_impl
                 .set_update_manager(update_manager_port)
                 .await;
 
-            // Start background update checker task
             let update_manager_clone = Arc::clone(&update_manager);
             let app_lifecycle_clone = Arc::clone(&app_lifecycle_manager);
             let update_handle = tokio::spawn(async move {

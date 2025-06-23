@@ -47,7 +47,6 @@ impl EventManager {
                         break;
                     }
                     result = tokio::task::spawn_blocking(|| {
-                        // Use poll with timeout to make it interruptible
                         if crossterm::event::poll(Duration::from_millis(100)).unwrap_or(false) {
                             crossterm::event::read()
                         } else {
@@ -64,7 +63,6 @@ impl EventManager {
                             Ok(Ok(CrosstermEvent::Resize(_, _))) => {}
                             Ok(Ok(_)) => {}
                             Ok(Err(e)) => {
-                                // Ignore timeout errors, continue loop
                                 if e.kind() != std::io::ErrorKind::TimedOut {
                                     error!(
                                         "Error reading crossterm event: {}. Stopping input listener.",

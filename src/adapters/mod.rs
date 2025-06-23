@@ -6,3 +6,6 @@ pub(crate) mod server;
 pub(crate) mod status;
 pub(crate) mod tui;
 pub(crate) mod update;
+
+#[cfg(test)]
+pub(crate) mod tests;

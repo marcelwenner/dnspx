@@ -520,9 +520,7 @@ mod integration_tests {
             unimplemented!("LocalHostsResolver not needed in this test mock")
         }
 
-        async fn add_task(&self, _handle: JoinHandle<()>) {
-            // Test mock - no-op
-        }
+        async fn add_task(&self, _handle: JoinHandle<()>) {}
 
         async fn get_total_queries_processed(&self) -> u64 {
             self.total_queries_processed
@@ -530,7 +528,7 @@ mod integration_tests {
         }
 
         async fn get_active_listeners(&self) -> Vec<String> {
-            vec![] // Test mock - empty list
+            vec![]
         }
 
         async fn add_listener_address(&self, _addr: String) {
@@ -542,7 +540,7 @@ mod integration_tests {
         }
 
         async fn start(&self) -> Result<(), String> {
-            Ok(()) // Test mock - always success
+            Ok(())
         }
 
         async fn stop(&self) {
@@ -550,11 +548,11 @@ mod integration_tests {
         }
 
         async fn trigger_config_reload(&self) -> Result<(), CliError> {
-            Ok(()) // Test mock - always success
+            Ok(())
         }
 
         async fn trigger_aws_scan_refresh(&self) -> Result<(), CliError> {
-            Ok(()) // Test mock - always success
+            Ok(())
         }
 
         async fn add_or_update_aws_account_config(
@@ -562,7 +560,7 @@ mod integration_tests {
             _new_account_config: AwsAccountConfig,
             _original_dnspx_label_for_edit: Option<String>,
         ) -> Result<(), ConfigError> {
-            Ok(()) // Test mock - always success
+            Ok(())
         }
 
         async fn persist_discovered_aws_details(
@@ -570,7 +568,7 @@ mod integration_tests {
             _discovered_ips: Option<Vec<String>>,
             _discovered_zones: Option<Vec<String>>,
         ) -> Result<(), ConfigError> {
-            Ok(()) // Test mock - always success
+            Ok(())
         }
 
         async fn get_app_status(&self) -> AppStatus {
@@ -582,7 +580,7 @@ mod integration_tests {
         }
 
         fn get_update_manager(&self) -> Option<Arc<dyn crate::ports::UpdateManagerPort>> {
-            None // Test mock - no update manager
+            None
         }
 
         async fn get_config_for_processor(&self) -> Arc<RwLock<AppConfig>> {
@@ -713,6 +711,552 @@ mod integration_tests {
                 response_message.answers().next().is_none(),
                 "There should be no answer records for an NXDomain response from a block rule"
             );
+        }
+    }
+
+    mod end_to_end_request_processing {
+        use super::*;
+        use crate::core::types::ProtocolType;
+        use crate::ports::DnsQueryService;
+        use hickory_proto::rr::{RData, Record};
+        use std::collections::HashMap;
+        use std::net::{IpAddr, Ipv4Addr};
+        use std::sync::Mutex;
+
+        #[derive(Debug, Clone)]
+        enum TestResolveError {
+            Timeout { server: String, duration: Duration },
+            Configuration(String),
+            Network(String),
+        }
+
+        impl std::fmt::Display for TestResolveError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    TestResolveError::Timeout { server, duration } => {
+                        write!(f, "Test timeout for server {} after {:?}", server, duration)
+                    }
+                    TestResolveError::Configuration(msg) => {
+                        write!(f, "Test configuration error: {}", msg)
+                    }
+                    TestResolveError::Network(msg) => write!(f, "Test network error: {}", msg),
+                }
+            }
+        }
+
+        impl std::error::Error for TestResolveError {}
+
+        impl From<TestResolveError> for ResolveError {
+            fn from(err: TestResolveError) -> Self {
+                match err {
+                    TestResolveError::Timeout { server, duration } => ResolveError::Timeout {
+                        domain: server,
+                        duration,
+                    },
+                    TestResolveError::Configuration(msg) => ResolveError::Configuration(msg),
+                    TestResolveError::Network(msg) => ResolveError::Network(msg),
+                }
+            }
+        }
+
+        #[derive(Debug)]
+        struct EnhancedMockResolver {
+            name: String,
+            call_log: Arc<Mutex<Vec<String>>>,
+            response_map: Arc<Mutex<HashMap<String, Result<DnsMessage, TestResolveError>>>>,
+        }
+
+        impl EnhancedMockResolver {
+            fn new(name: &str) -> Self {
+                Self {
+                    name: name.to_string(),
+                    call_log: Arc::new(Mutex::new(Vec::new())),
+                    response_map: Arc::new(Mutex::new(HashMap::new())),
+                }
+            }
+
+            fn set_response(&self, domain: &str, ip: Ipv4Addr) {
+                let response = Self::create_a_record_response(domain, ip);
+                let mut map = self.response_map.lock().unwrap();
+                map.insert(domain.to_string(), Ok(response));
+            }
+
+            fn set_error_response(&self, domain: &str, error: TestResolveError) {
+                let mut map = self.response_map.lock().unwrap();
+                map.insert(domain.to_string(), Err(error));
+            }
+
+            fn get_calls(&self) -> Vec<String> {
+                self.call_log.lock().unwrap().clone()
+            }
+
+            fn was_called_for(&self, domain: &str) -> bool {
+                let calls = self.call_log.lock().unwrap();
+                calls.iter().any(|call| call.contains(domain))
+            }
+
+            fn call_count(&self) -> usize {
+                self.call_log.lock().unwrap().len()
+            }
+
+            fn create_a_record_response(domain: &str, ip: Ipv4Addr) -> DnsMessage {
+                let query = DnsMessage::new_query(1, domain, RecordType::A).unwrap();
+                let mut response =
+                    DnsMessage::new_response(&Arc::new(query), ResponseCode::NoError);
+
+                let record = Record::from_rdata(domain.parse().unwrap(), 300, RData::A(ip.into()));
+                response.add_answer_record(record);
+                response
+            }
+        }
+
+        #[async_trait]
+        impl UpstreamResolver for EnhancedMockResolver {
+            async fn resolve_dns(
+                &self,
+                question: &crate::dns_protocol::DnsQuestion,
+                _upstream_servers: &[String],
+                _timeout: Duration,
+            ) -> Result<DnsMessage, ResolveError> {
+                {
+                    let mut log = self.call_log.lock().unwrap();
+                    log.push(format!("{}:dns:{}", self.name, question.name));
+                }
+
+                let map = self.response_map.lock().unwrap();
+                if let Some(response) = map.get(&question.name) {
+                    match response {
+                        Ok(dns_msg) => Ok(dns_msg.clone()),
+                        Err(test_err) => Err(test_err.clone().into()),
+                    }
+                } else {
+                    Err(ResolveError::Configuration(format!(
+                        "No response configured for {} in resolver {}",
+                        question.name, self.name
+                    )))
+                }
+            }
+
+            async fn resolve_doh(
+                &self,
+                question: &crate::dns_protocol::DnsQuestion,
+                _upstream_urls: &[url::Url],
+                _timeout: Duration,
+                _http_proxy_config: Option<&crate::config::models::HttpProxyConfig>,
+            ) -> Result<DnsMessage, ResolveError> {
+                {
+                    let mut log = self.call_log.lock().unwrap();
+                    log.push(format!("{}:doh:{}", self.name, question.name));
+                }
+
+                let map = self.response_map.lock().unwrap();
+                if let Some(response) = map.get(&question.name) {
+                    match response {
+                        Ok(dns_msg) => Ok(dns_msg.clone()),
+                        Err(test_err) => Err(test_err.clone().into()),
+                    }
+                } else {
+                    Err(ResolveError::Configuration(format!(
+                        "No DoH response configured for {} in resolver {}",
+                        question.name, self.name
+                    )))
+                }
+            }
+        }
+
+        fn create_config_with_forwarding_rule(
+            domain_pattern: &str,
+            nameservers: Vec<String>,
+        ) -> AppConfig {
+            let rule = RuleConfig {
+                name: "test_forwarding_rule".to_string(),
+                domain_pattern: HashableRegex(
+                    Regex::new(domain_pattern).expect("Invalid regex in test"),
+                ),
+                action: RuleAction::Forward,
+                nameservers: Some(nameservers),
+                strategy: ResolverStrategy::First,
+                timeout: Duration::from_secs(5),
+                doh_compression_mutation: false,
+                source_list_url: None,
+                invert_match: false,
+            };
+
+            AppConfig {
+                server: ServerConfig::default(),
+                default_resolver: DefaultResolverConfig {
+                    nameservers: vec!["8.8.8.8".to_string()],
+                    strategy: ResolverStrategy::First,
+                    timeout: Duration::from_secs(5),
+                    doh_compression_mutation: false,
+                },
+                routing_rules: vec![rule],
+                local_hosts: None,
+                cache: CacheConfig {
+                    enabled: false,
+                    max_capacity: 0,
+                    min_ttl: Duration::from_secs(1),
+                    max_ttl: Duration::from_secs(3600),
+                    serve_stale_if_error: false,
+                    serve_stale_max_ttl: Duration::from_secs(86400),
+                },
+                http_proxy: None,
+                aws: None,
+                logging: LoggingConfig::default(),
+                cli: CliConfig::default(),
+                update: None,
+            }
+        }
+
+        fn create_config_with_cache_enabled() -> AppConfig {
+            AppConfig {
+                server: ServerConfig::default(),
+                default_resolver: DefaultResolverConfig::default(),
+                routing_rules: vec![],
+                local_hosts: None,
+                cache: CacheConfig {
+                    enabled: true,
+                    max_capacity: 1000,
+                    min_ttl: Duration::from_secs(1),
+                    max_ttl: Duration::from_secs(3600),
+                    serve_stale_if_error: false,
+                    serve_stale_max_ttl: Duration::from_secs(86400),
+                },
+                http_proxy: None,
+                aws: None,
+                logging: LoggingConfig::default(),
+                cli: CliConfig::default(),
+                update: None,
+            }
+        }
+
+        fn create_config_with_local_hosts(hosts: HashMap<String, Vec<IpAddr>>) -> AppConfig {
+            AppConfig {
+                server: ServerConfig::default(),
+                default_resolver: DefaultResolverConfig::default(),
+                routing_rules: vec![],
+                local_hosts: Some(crate::config::models::LocalHostsConfig {
+                    entries: hosts.into_iter().collect(),
+                    file_path: None,
+                    watch_file: false,
+                    ttl: 300,
+                    load_balancing: crate::config::models::HostsLoadBalancing::All,
+                }),
+                cache: CacheConfig {
+                    enabled: true,
+                    max_capacity: 1000,
+                    min_ttl: Duration::from_secs(1),
+                    max_ttl: Duration::from_secs(3600),
+                    serve_stale_if_error: false,
+                    serve_stale_max_ttl: Duration::from_secs(86400),
+                },
+                http_proxy: None,
+                aws: None,
+                logging: LoggingConfig::default(),
+                cli: CliConfig::default(),
+                update: None,
+            }
+        }
+
+        fn create_config_with_priority_rules() -> AppConfig {
+            let block_rule = RuleConfig {
+                name: "block_ads_rule".to_string(),
+                domain_pattern: HashableRegex(
+                    Regex::new(r"^ads\.google\.com$").expect("Invalid regex"),
+                ),
+                action: RuleAction::Block,
+                nameservers: None,
+                strategy: ResolverStrategy::First,
+                timeout: Duration::from_secs(5),
+                doh_compression_mutation: false,
+                source_list_url: None,
+                invert_match: false,
+            };
+
+            let allow_rule = RuleConfig {
+                name: "allow_google_rule".to_string(),
+                domain_pattern: HashableRegex(
+                    Regex::new(r".*\.google\.com$").expect("Invalid regex"),
+                ),
+                action: RuleAction::Allow,
+                nameservers: None,
+                strategy: ResolverStrategy::First,
+                timeout: Duration::from_secs(5),
+                doh_compression_mutation: false,
+                source_list_url: None,
+                invert_match: false,
+            };
+
+            AppConfig {
+                server: ServerConfig::default(),
+                default_resolver: DefaultResolverConfig::default(),
+                routing_rules: vec![block_rule, allow_rule],
+                local_hosts: None,
+                cache: CacheConfig {
+                    enabled: false,
+                    max_capacity: 0,
+                    min_ttl: Duration::from_secs(1),
+                    max_ttl: Duration::from_secs(3600),
+                    serve_stale_if_error: false,
+                    serve_stale_max_ttl: Duration::from_secs(86400),
+                },
+                http_proxy: None,
+                aws: None,
+                logging: LoggingConfig::default(),
+                cli: CliConfig::default(),
+                update: None,
+            }
+        }
+
+        async fn setup_enhanced_processor(
+            config: AppConfig,
+            resolver: Arc<EnhancedMockResolver>,
+        ) -> Arc<DnsRequestProcessor> {
+            let config_arc = Arc::new(RwLock::new(config.clone()));
+            let dns_cache = Arc::new(DnsCache::new(
+                config.cache.max_capacity,
+                config.cache.min_ttl,
+                config.cache.max_ttl,
+                config.cache.serve_stale_if_error,
+                config.cache.serve_stale_max_ttl,
+            ));
+
+            let mock_alm = Arc::new(MockAppLifecycleManagerForProcessor::new(config_arc.clone()));
+            let local_hosts_resolver = LocalHostsResolver::new(config_arc.clone()).await;
+            let rule_engine = Arc::new(RuleEngine::new(config_arc.clone()));
+
+            Arc::new(DnsRequestProcessor::new(
+                mock_alm,
+                dns_cache,
+                rule_engine,
+                local_hosts_resolver,
+                resolver,
+            ))
+        }
+
+        async fn process_query_helper(
+            processor: &DnsRequestProcessor,
+            domain: &str,
+        ) -> Result<DnsMessage, String> {
+            let query_msg = DnsMessage::new_query(12345, domain, RecordType::A)
+                .map_err(|e| format!("Failed to create query: {}", e))?;
+
+            let query_bytes = serialize_dns_message(&query_msg)
+                .map_err(|e| format!("Failed to serialize query: {}", e))?;
+
+            let client_addr: SocketAddr = "127.0.0.1:54321".parse().unwrap();
+
+            let response_bytes = processor
+                .process_query(query_bytes, client_addr, ProtocolType::Udp)
+                .await
+                .map_err(|e| format!("Failed to process query: {}", e))?;
+
+            let response_msg = parse_dns_message(&response_bytes)
+                .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+            Ok(response_msg)
+        }
+
+        #[tokio::test]
+        async fn test_rule_based_forwarding_targets_specific_resolver() {
+            let rule_resolver = Arc::new(EnhancedMockResolver::new("rule_resolver"));
+            rule_resolver.set_response("service.test.corp.", Ipv4Addr::new(10, 0, 1, 100));
+
+            let config = create_config_with_forwarding_rule(
+                r".*\.test\.corp$",
+                vec!["192.168.1.1".to_string()],
+            );
+
+            let processor = setup_enhanced_processor(config, rule_resolver.clone()).await;
+
+            let response = process_query_helper(&processor, "service.test.corp")
+                .await
+                .expect("Query should succeed");
+
+            assert_eq!(response.response_code(), ResponseCode::NoError);
+            let answers: Vec<_> = response.answers().collect();
+            assert_eq!(answers.len(), 1, "Should have exactly one answer");
+
+            if let RData::A(ip) = answers[0].data() {
+                assert_eq!(*ip, Ipv4Addr::new(10, 0, 1, 100).into());
+            } else {
+                panic!("Answer should contain A record with correct IP");
+            }
+
+            assert!(rule_resolver.was_called_for("service.test.corp."));
+            assert_eq!(rule_resolver.call_count(), 1);
+        }
+
+        #[tokio::test]
+        async fn test_cache_hit_prevents_second_resolver_call() {
+            let resolver = Arc::new(EnhancedMockResolver::new("cache_test_resolver"));
+            resolver.set_response("cached.example.com.", Ipv4Addr::new(10, 0, 2, 100));
+
+            let config = create_config_with_cache_enabled();
+            let processor = setup_enhanced_processor(config, resolver.clone()).await;
+
+            let response1 = process_query_helper(&processor, "cached.example.com")
+                .await
+                .expect("First query should succeed");
+
+            assert_eq!(response1.response_code(), ResponseCode::NoError);
+
+            let response2 = process_query_helper(&processor, "cached.example.com")
+                .await
+                .expect("Second query should succeed");
+
+            assert_eq!(response2.response_code(), ResponseCode::NoError);
+
+            assert_eq!(
+                resolver.call_count(),
+                1,
+                "Resolver should only be called once due to caching"
+            );
+            assert!(resolver.was_called_for("cached.example.com."));
+        }
+
+        #[tokio::test]
+        async fn test_block_rule_priority_over_allow_rule() {
+            let resolver = Arc::new(EnhancedMockResolver::new("should_not_be_called"));
+
+            let config = create_config_with_priority_rules();
+            let processor = setup_enhanced_processor(config, resolver.clone()).await;
+
+            let response = process_query_helper(&processor, "ads.google.com")
+                .await
+                .expect("Query should succeed with block response");
+
+            assert_eq!(
+                response.response_code(),
+                ResponseCode::NXDomain,
+                "Blocked domain should return NXDOMAIN"
+            );
+            assert!(
+                response.answers().next().is_none(),
+                "Blocked domain should have no answer records"
+            );
+
+            assert_eq!(
+                resolver.call_count(),
+                0,
+                "No upstream resolver should be called for blocked domains"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_local_hosts_priority_over_everything() {
+            let resolver = Arc::new(EnhancedMockResolver::new("should_not_be_called"));
+
+            let mut local_hosts = HashMap::new();
+            local_hosts.insert(
+                "dev.local".to_string(),
+                vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))],
+            );
+
+            let config = create_config_with_local_hosts(local_hosts);
+            let processor = setup_enhanced_processor(config, resolver.clone()).await;
+
+            let response = process_query_helper(&processor, "dev.local")
+                .await
+                .expect("Query should succeed with local hosts response");
+
+            assert_eq!(response.response_code(), ResponseCode::NoError);
+
+            let answers: Vec<_> = response.answers().collect();
+            assert_eq!(answers.len(), 1, "Should have exactly one answer record");
+
+            if let RData::A(ip) = answers[0].data() {
+                assert_eq!(*ip, Ipv4Addr::new(127, 0, 0, 1).into());
+            } else {
+                panic!("Answer should contain A record with local hosts IP");
+            }
+
+            assert_eq!(
+                resolver.call_count(),
+                0,
+                "No upstream resolver should be called when local hosts has entry"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_query_processing_preserves_query_id() {
+            let resolver = Arc::new(EnhancedMockResolver::new("id_test_resolver"));
+            resolver.set_response("example.com.", Ipv4Addr::new(93, 184, 216, 34));
+
+            let config = create_config_with_cache_enabled();
+            let processor = setup_enhanced_processor(config, resolver.clone()).await;
+
+            let query_id = 54321;
+            let query_msg = DnsMessage::new_query(query_id, "example.com", RecordType::A)
+                .expect("Failed to create query");
+
+            let query_bytes = serialize_dns_message(&query_msg).expect("Failed to serialize query");
+
+            let client_addr: SocketAddr = "127.0.0.1:54321".parse().unwrap();
+
+            let response_bytes = processor
+                .process_query(query_bytes, client_addr, ProtocolType::Udp)
+                .await
+                .expect("Query should succeed");
+
+            let response_msg =
+                parse_dns_message(&response_bytes).expect("Failed to parse response");
+
+            assert_eq!(
+                response_msg.id(),
+                query_id,
+                "Response ID should match original query ID"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_processor_increments_query_counter() {
+            let resolver = Arc::new(EnhancedMockResolver::new("counter_test_resolver"));
+            resolver.set_response("counter.test.", Ipv4Addr::new(10, 0, 0, 1));
+
+            let config = create_config_with_cache_disabled();
+            let processor = setup_enhanced_processor(config, resolver.clone()).await;
+
+            let initial_count = processor
+                .app_lifecycle_access
+                .get_total_queries_processed()
+                .await;
+
+            let _response = process_query_helper(&processor, "counter.test")
+                .await
+                .expect("Query should succeed");
+
+            let final_count = processor
+                .app_lifecycle_access
+                .get_total_queries_processed()
+                .await;
+            assert_eq!(
+                final_count,
+                initial_count + 1,
+                "Query counter should be incremented"
+            );
+        }
+
+        fn create_config_with_cache_disabled() -> AppConfig {
+            AppConfig {
+                server: ServerConfig::default(),
+                default_resolver: DefaultResolverConfig::default(),
+                routing_rules: vec![],
+                local_hosts: None,
+                cache: CacheConfig {
+                    enabled: false,
+                    max_capacity: 0,
+                    min_ttl: Duration::from_secs(1),
+                    max_ttl: Duration::from_secs(3600),
+                    serve_stale_if_error: false,
+                    serve_stale_max_ttl: Duration::from_secs(86400),
+                },
+                http_proxy: None,
+                aws: None,
+                logging: LoggingConfig::default(),
+                cli: CliConfig::default(),
+                update: None,
+            }
         }
     }
 }

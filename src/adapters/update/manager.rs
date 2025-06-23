@@ -72,13 +72,11 @@ impl VerifiedUpdateManager {
         let cancellation_token = app_lifecycle.get_cancellation_token();
         let user_interaction = app_lifecycle.get_user_interaction_port();
 
-        // Create initial interval
         let mut interval = {
             let config = self.config.read().await;
             tokio::time::interval(config.check_interval)
         };
 
-        // Skip the first tick to avoid immediate execution
         interval.tick().await;
 
         info!("Update background checker started");
@@ -110,7 +108,6 @@ impl VerifiedUpdateManager {
                                 );
                             }
 
-                            // Check if auto-update is enabled
                             let config = self.config.read().await;
                             if config.auto_update_policy.update_level != crate::config::models::UpdateLevel::None {
                                 info!("Auto-update is enabled, installing update automatically");
@@ -157,20 +154,18 @@ impl VerifiedUpdateManager {
                         }
                         Err(e) => {
                             warn!("Update check failed: {}", e);
-                            // Don't display to user unless it's a critical error
                             if matches!(e, UpdateError::Network(_)) {
                                 debug!("Network error during update check (will retry): {}", e);
                             }
                         }
                     }
 
-                    // Update interval in case configuration changed
                     let new_interval = {
                         let config = self.config.read().await;
                         config.check_interval
                     };
                     interval = tokio::time::interval(new_interval);
-                    interval.tick().await; // Skip immediate tick
+                    interval.tick().await;
                 }
             }
         }
@@ -573,7 +568,6 @@ impl UpdateManagerPort for VerifiedUpdateManager {
     async fn rollback_update(&self) -> Result<UpdateResult, UpdateError> {
         warn!("Manual rollback requested");
 
-        // Check if rollback is available by looking for backup files
         let backup_dir = &self.backup_dir;
         if !backup_dir.exists() {
             return Err(UpdateError::RollbackFailed(
@@ -581,7 +575,6 @@ impl UpdateManagerPort for VerifiedUpdateManager {
             ));
         }
 
-        // Find the most recent backup file
         let mut backup_entries =
             tokio::fs::read_dir(backup_dir)
                 .await
@@ -620,11 +613,9 @@ impl UpdateManagerPort for VerifiedUpdateManager {
             ));
         }
 
-        // Sort by modification time, most recent first
         backup_files.sort_by(|a, b| b.1.cmp(&a.1));
         let (most_recent_backup, _) = &backup_files[0];
 
-        // Extract version from backup filename
         let backup_filename = most_recent_backup
             .file_name()
             .and_then(|n| n.to_str())
@@ -655,20 +646,17 @@ impl UpdateManagerPort for VerifiedUpdateManager {
             current_version, backup_version
         );
 
-        // Use self_update::Move for the rollback operation as well
         let backup_path = most_recent_backup.clone();
         let current_binary_path = self.current_binary_path.clone();
         let config = self.config.read().await;
         let health_check_enabled = config.rollback.health_check_enabled;
         drop(config);
 
-        // Perform the rollback using self_update in a blocking task
         tokio::task::spawn_blocking(move || -> Result<(), UpdateError> {
             use self_update::Move;
 
             let mut move_op = Move::from_source(&backup_path);
 
-            // Create a temp path for safe replacement
             let temp_path = current_binary_path.with_extension("rollback_temp");
             move_op.replace_using_temp(&temp_path);
 
@@ -682,7 +670,6 @@ impl UpdateManagerPort for VerifiedUpdateManager {
         .await
         .map_err(|e| UpdateError::RollbackFailed(format!("Rollback task failed: {}", e)))??;
 
-        // Perform health check if enabled
         if health_check_enabled {
             let health_check = async {
                 let output = std::process::Command::new(&self.current_binary_path)
@@ -731,7 +718,6 @@ impl UpdateManagerPort for VerifiedUpdateManager {
     }
 
     async fn is_rollback_available(&self) -> bool {
-        // Check if backup directory exists and has backup files
         if !self.backup_dir.exists() {
             return false;
         }

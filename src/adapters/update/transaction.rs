@@ -80,18 +80,15 @@ impl UpdateTransaction {
             self.current_binary_path.display()
         );
 
-        // Use self_update::Move for cross-platform atomic file replacement
-        // This handles Windows file locking issues by using appropriate system calls
         let new_binary_path = new_binary_path.to_path_buf();
         let current_binary_path = self.current_binary_path.clone();
         let health_check_enabled = self.config.health_check_enabled;
-        // Perform the move operation in a blocking task since self_update is sync
+
         tokio::task::spawn_blocking(move || -> Result<(), UpdateError> {
             use self_update::Move;
 
             let mut move_op = Move::from_source(&new_binary_path);
 
-            // Create a temp path for safe replacement
             let temp_path = current_binary_path.with_extension("temp");
             move_op.replace_using_temp(&temp_path);
 

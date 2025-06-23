@@ -395,7 +395,6 @@ mod tests {
                 count: 123,
             };
 
-            // Use platform-specific invalid paths
             #[cfg(unix)]
             let invalid_path = PathBuf::from("/root/cannot_write/test.toml");
 
@@ -404,19 +403,13 @@ mod tests {
 
             let result = setup.adapter.write_toml_file(&test_data, &invalid_path);
 
-            // On some systems (especially in CI/test environments), even "invalid" paths might work
-            // due to elevated permissions or different security contexts
             if result.is_ok() {
-                // If the write unexpectedly succeeded, clean up the file
                 let _ = std::fs::remove_file(&invalid_path);
 
-                // Skip the test in environments where we have unexpected permissions
-                // This can happen in CI systems with elevated privileges
                 println!("Test skipped: Unexpected write permissions in test environment");
                 return;
             }
 
-            // If it failed as expected, verify it's the right kind of error
             match result.unwrap_err() {
                 ConfigError::WriteFile { .. } => {
                     // Expected error type

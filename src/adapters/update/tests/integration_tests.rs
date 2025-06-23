@@ -9,13 +9,12 @@ use reqwest::Client;
 use semver::Version;
 use std::time::Duration;
 
-/// Creates a complete test setup for integration testing
 async fn create_test_update_components() -> (SecurityValidator, ReleaseAnalyzer, tempfile::TempDir)
 {
     let temp_dir = create_test_dir();
 
     let security_config = UpdateSecurityConfig {
-        verify_checksums: false, // Disable for integration testing
+        verify_checksums: false,
         verify_signatures: false,
         require_attestations: false,
         trusted_builders: vec!["https://github.com/actions".to_string()],
@@ -36,7 +35,6 @@ async fn create_test_update_components() -> (SecurityValidator, ReleaseAnalyzer,
     (security_validator, release_analyzer, temp_dir)
 }
 
-/// Creates a test transaction for integration testing
 async fn create_test_transaction(temp_dir: &tempfile::TempDir) -> UpdateTransaction {
     let current_binary_content = create_test_executable_content("1.0.0");
     let current_binary =
@@ -47,8 +45,8 @@ async fn create_test_transaction(temp_dir: &tempfile::TempDir) -> UpdateTransact
     let config = UpdateRollbackConfig {
         enabled: true,
         keep_backups: 3,
-        health_check_timeout: Duration::from_secs(1), // Short timeout for testing
-        health_check_enabled: false,                  // Disable to avoid issues with test binaries
+        health_check_timeout: Duration::from_secs(1),
+        health_check_enabled: false,
     };
 
     UpdateTransaction::new(
@@ -68,12 +66,10 @@ mod tests {
     async fn test_complete_update_workflow_analysis() {
         let (security_validator, analyzer, _temp_dir) = create_test_update_components().await;
 
-        // Test URL validation
         let update_url = "https://github.com/owner/repo/releases/download/v1.1.0/dnspx-linux";
         let url_result = security_validator.validate_url(update_url);
         assert!(url_result.is_ok(), "Update URL should be valid");
 
-        // Test release analysis
         let release_notes = "
 ## What's Changed
 - Fix memory leak in DNS resolution
@@ -90,7 +86,6 @@ mod tests {
             "Should not detect breaking changes"
         );
 
-        // Test auto-update decision
         let policy = UpdateAutoPolicy {
             update_level: UpdateLevel::MinorAndPatch,
             allow_breaking_changes: false,
@@ -110,12 +105,10 @@ mod tests {
     async fn test_security_blocks_unsafe_update() {
         let (security_validator, analyzer, _temp_dir) = create_test_update_components().await;
 
-        // Test blocked URL
         let malicious_url = "https://malicious-site.com/fake-update.exe";
         let url_result = security_validator.validate_url(malicious_url);
         assert!(url_result.is_err(), "Malicious URL should be blocked");
 
-        // Test breaking changes detection
         let breaking_notes = "
 ## Breaking Changes
 - 💥 Remove deprecated API
@@ -130,7 +123,6 @@ mod tests {
             "Should detect breaking changes"
         );
 
-        // Test auto-update blocks breaking changes
         let policy = UpdateAutoPolicy {
             update_level: UpdateLevel::All,
             allow_breaking_changes: false,
@@ -150,7 +142,6 @@ mod tests {
     async fn test_security_allows_security_patches() {
         let (_security_validator, analyzer, _temp_dir) = create_test_update_components().await;
 
-        // Test security patch detection and prioritization
         let security_notes = "
 ## Security Update
 - Fix critical vulnerability (CVE-2024-1234)
@@ -162,7 +153,6 @@ mod tests {
             .unwrap();
         assert!(metadata.security_fixes, "Should detect security fixes");
 
-        // Security patches should override restrictive policies
         let restrictive_policy = UpdateAutoPolicy {
             update_level: UpdateLevel::None,
             allow_breaking_changes: false,
@@ -176,7 +166,7 @@ mod tests {
             &metadata.version,
             &metadata,
         );
-        // Note: Current implementation allows security fixes to override policies within same major version
+
         assert!(
             should_update,
             "Security fixes should override restrictive policies"
@@ -188,7 +178,6 @@ mod tests {
         let (_security_validator, _analyzer, temp_dir) = create_test_update_components().await;
         let mut transaction = create_test_transaction(&temp_dir).await;
 
-        // Test backup preparation
         let prepare_result = transaction.prepare().await;
         assert!(prepare_result.is_ok(), "Transaction prepare should succeed");
         assert!(
@@ -196,16 +185,13 @@ mod tests {
             "Rollback should be available after prepare"
         );
 
-        // Create a new binary for commit
         let new_binary_content = create_test_executable_content("1.1.0");
         let new_binary_path =
             create_test_binary(temp_dir.path(), "dnspx-new", &new_binary_content).await;
 
-        // Test commit
         let commit_result = transaction.commit(&new_binary_path).await;
         assert!(commit_result.is_ok(), "Transaction commit should succeed");
 
-        // Test rollback capability
         let rollback_result = transaction.rollback().await;
         assert!(
             rollback_result.is_ok(),
@@ -217,11 +203,10 @@ mod tests {
     async fn test_version_comparison_logic() {
         let (_security_validator, analyzer, _temp_dir) = create_test_update_components().await;
 
-        // Test version breaking change detection
         let v1_0_0 = Version::new(1, 0, 0);
-        let v1_0_1 = Version::new(1, 0, 1); // patch
-        let v1_1_0 = Version::new(1, 1, 0); // minor
-        let v2_0_0 = Version::new(2, 0, 0); // major
+        let v1_0_1 = Version::new(1, 0, 1);
+        let v1_1_0 = Version::new(1, 1, 0);
+        let v2_0_0 = Version::new(2, 0, 0);
 
         assert!(
             !analyzer.has_breaking_changes(&v1_0_0, &v1_0_1),
@@ -236,7 +221,6 @@ mod tests {
             "Major should be breaking"
         );
 
-        // Test downgrade prevention
         let policy = UpdateAutoPolicy {
             update_level: UpdateLevel::All,
             allow_breaking_changes: true,
@@ -259,13 +243,9 @@ mod tests {
     async fn test_comprehensive_validation_workflow() {
         let (security_validator, analyzer, temp_dir) = create_test_update_components().await;
 
-        // Simulate a complete validation workflow
-
-        // Step 1: Validate update source
         let update_url = "https://github.com/mwenner/dnspx/releases/download/v1.1.0/dnspx-linux";
         assert!(security_validator.validate_url(update_url).is_ok());
 
-        // Step 2: Analyze release notes
         let release_notes = "
 ## DNSPX v1.1.0 Release Notes
 
@@ -287,11 +267,10 @@ mod tests {
             .unwrap();
         assert_eq!(metadata.version, Version::new(1, 1, 0));
         assert!(!metadata.has_breaking_changes);
-        assert!(metadata.security_fixes); // Should detect security mentions
+        assert!(metadata.security_fixes);
         assert!(!metadata.new_features.is_empty());
         assert!(!metadata.bug_fixes.is_empty());
 
-        // Step 3: Check auto-update policy
         let policy = UpdateAutoPolicy {
             update_level: UpdateLevel::MinorAndPatch,
             allow_breaking_changes: false,
@@ -306,11 +285,9 @@ mod tests {
             "Should allow minor update with security fixes"
         );
 
-        // Step 4: Prepare transaction
         let mut transaction = create_test_transaction(&temp_dir).await;
         assert!(transaction.prepare().await.is_ok());
 
-        // Step 5: Validate download (simplified - no actual download)
         let test_binary_content = create_test_executable_content("1.1.0");
         let test_binary_path =
             create_test_binary(temp_dir.path(), "test-download", &test_binary_content).await;
@@ -323,10 +300,6 @@ mod tests {
             "Validation should succeed with checksum disabled"
         );
 
-        // Step 6: Commit update
         assert!(transaction.commit(&test_binary_path).await.is_ok());
-
-        // Complete workflow should succeed
-        // Test passed - all validation steps completed successfully
     }
 }

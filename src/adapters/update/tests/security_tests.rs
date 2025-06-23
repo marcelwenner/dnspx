@@ -59,7 +59,6 @@ mod tests {
     async fn test_validate_url_allowed_domains() {
         let validator = create_test_security_validator().await;
 
-        // Test allowed domains
         let allowed_urls = vec![
             "https://github.com/owner/repo/releases/download/v1.0.0/file.tar.gz",
             "https://api.github.com/repos/owner/repo/releases",
@@ -75,7 +74,6 @@ mod tests {
     async fn test_validate_url_blocked_domains() {
         let validator = create_test_security_validator().await;
 
-        // Test blocked domains
         let blocked_urls = vec![
             "https://malicious-site.com/file.exe",
             "http://untrusted-server.net/download",
@@ -117,7 +115,6 @@ mod tests {
         let test_data = b"test file content";
         let file_path = create_test_binary(temp_dir.path(), "test-file", test_data).await;
 
-        // Should succeed when checksum verification is disabled
         let result = validator.validate_download(&file_path, None, None).await;
         assert!(
             result.is_ok(),
@@ -130,7 +127,6 @@ mod tests {
         let validator1 = create_test_security_validator().await;
         let validator2 = validator1.clone();
 
-        // Both validators should work the same way
         let test_url = "https://github.com/test/repo";
 
         let result1 = validator1.validate_url(test_url);
@@ -139,8 +135,6 @@ mod tests {
         assert_eq!(result1.is_ok(), result2.is_ok());
     }
 
-    // ===== ATTESTATION VERIFICATION TESTS =====
-
     #[tokio::test]
     async fn test_attestation_disabled_by_default() {
         let validator = create_test_security_validator().await;
@@ -148,7 +142,6 @@ mod tests {
         let test_data = b"test file content for attestation";
         let file_path = create_test_binary(temp_dir.path(), "test-binary", test_data).await;
 
-        // Should succeed when attestations are disabled (default)
         let result = validator.validate_download(&file_path, None, None).await;
         assert!(
             result.is_ok(),
@@ -163,8 +156,6 @@ mod tests {
         let test_data = b"test file requiring attestation";
         let file_path = create_test_binary(temp_dir.path(), "dnspx-test", test_data).await;
 
-        // Should fail when attestations are required but not available
-        // (This will fail because we can't reach GitHub API in tests)
         let result = validator.validate_download(&file_path, None, None).await;
         assert!(
             result.is_err(),
@@ -201,8 +192,6 @@ mod tests {
         let client = Client::new();
         let validator = SecurityValidator::new(config, client);
 
-        // Verify that custom trusted builders are configured
-        // (We can't easily test the actual verification without mocking the GitHub API)
         assert_eq!(validator.config.trusted_builders.len(), 2);
         assert!(
             validator
@@ -234,7 +223,6 @@ mod tests {
         let client = Client::new();
         let validator = SecurityValidator::new(config, client);
 
-        // Verify SLSA level requirement is configured
         assert_eq!(validator.config.require_slsa_level, 3);
     }
 
@@ -273,7 +261,6 @@ mod tests {
     async fn test_security_config_defaults() {
         let config = UpdateSecurityConfig::default();
 
-        // Verify default security configuration
         assert!(
             config.verify_checksums,
             "Checksums should be verified by default"
@@ -311,7 +298,6 @@ mod tests {
         let validator = create_attestation_enabled_validator().await;
         let temp_dir = create_test_dir();
 
-        // Test with various problematic file scenarios
         let test_cases = vec![
             ("non-existent-file.bin", "Should handle non-existent files"),
             ("empty-file.bin", "Should handle empty files"),
@@ -330,8 +316,6 @@ mod tests {
         }
     }
 
-    // ===== JWT VERIFICATION TESTS =====
-
     #[tokio::test]
     async fn test_jwks_fetching_disabled_when_attestations_disabled() {
         let validator = create_test_security_validator().await;
@@ -339,7 +323,6 @@ mod tests {
         let test_data = b"test file content";
         let file_path = create_test_binary(temp_dir.path(), "test-binary", test_data).await;
 
-        // Should succeed without JWKS fetching when attestations are disabled
         let result = validator.validate_download(&file_path, None, None).await;
         assert!(
             result.is_ok(),
@@ -351,18 +334,10 @@ mod tests {
     async fn test_jwks_cache_initialization() {
         let validator = create_attestation_enabled_validator().await;
 
-        // Cache should be empty initially
-        // Note: We can't directly test the cache since it's private, but we can test
-        // that get_cached_jwks will attempt to fetch fresh JWKS
-
-        // This test tries to fetch JWKS - it might succeed if network is available
-        // or fail if network is not available. Both are acceptable outcomes for this test.
         let result = validator.get_cached_jwks().await;
 
         match result {
             Ok(jwks) => {
-                // Network was available and JWKS was fetched successfully
-                // Verify the structure is correct
                 assert!(
                     !jwks.keys.is_empty(),
                     "JWKS should contain at least one key"
@@ -370,11 +345,9 @@ mod tests {
                 println!("Successfully fetched {} JWKS keys", jwks.keys.len());
             }
             Err(crate::core::error::UpdateError::JwksFetchFailed(_)) => {
-                // Expected error type when network fails
                 println!("JWKS fetch failed as expected (no network/mock)");
             }
             Err(crate::core::error::UpdateError::Network(_)) => {
-                // Also acceptable - network error
                 println!("Network error as expected");
             }
             Err(e) => {
@@ -401,7 +374,6 @@ mod tests {
         let client = Client::new();
         let validator = SecurityValidator::new(config, client);
 
-        // Test invalid JWT format
         let invalid_jwts = vec![
             "not.a.jwt",
             "invalid-base64-header.payload.signature",
@@ -412,7 +384,6 @@ mod tests {
         ];
 
         for invalid_jwt in invalid_jwts {
-            // This would require a mocked JWKS, so we expect it to fail at JWKS fetch stage
             let result = validator
                 .verify_jwt_signature(invalid_jwt, &create_mock_jwks())
                 .await;
@@ -420,7 +391,6 @@ mod tests {
         }
     }
 
-    // Helper function to create mock JWKS for testing
     fn create_mock_jwks() -> crate::adapters::update::security::GitHubJwks {
         crate::adapters::update::security::GitHubJwks {
             keys: vec![crate::adapters::update::security::JsonWebKey {
@@ -436,7 +406,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_trusted_builder_validation_with_attestations() {
-        // Test that trusted builders are properly validated when attestations are enabled
         let trusted_builders = vec![
             "https://github.com/actions".to_string(),
             "https://custom-ci.example.com".to_string(),
@@ -456,7 +425,6 @@ mod tests {
         let client = Client::new();
         let validator = SecurityValidator::new(config, client);
 
-        // Verify configuration is set correctly
         assert_eq!(validator.config.trusted_builders.len(), 2);
         assert!(
             validator
@@ -505,16 +473,12 @@ mod tests {
         }
     }
 
-    // ===== INTEGRATION TESTS WITH HTTPMOCK =====
-
     #[tokio::test]
     async fn test_github_attestations_api_success() {
         use httpmock::prelude::*;
 
-        // Start a mock server
         let server = MockServer::start();
 
-        // Mock the GitHub attestations API response
         let mock = server.mock(|when, then| {
             when.method(GET)
                 .path("/repos/test/repo/attestations")
@@ -527,7 +491,7 @@ mod tests {
                         {
                             "bundle": {
                                 "dsseEnvelope": {
-                                    "payload": "eyJ0ZXN0IjoidmFsdWUifQ==", // {"test":"value"} in base64
+                                    "payload": "eyJ0ZXN0IjoidmFsdWUifQ==",
                                     "signatures": [
                                         {
                                             "sig": "mock-signature"
@@ -540,7 +504,6 @@ mod tests {
                 }));
         });
 
-        // Create a validator with a modified HTTP client pointing to the mock server
         let config = UpdateSecurityConfig {
             require_attestations: true,
             attestation_repo: "test/repo".to_string(),
@@ -551,12 +514,7 @@ mod tests {
         let client = Client::new();
         let _validator = SecurityValidator::new(config, client);
 
-        // This test would need additional setup to work with the mocked endpoint
-        // For now, we verify the mock was called correctly when we add the capability
-        // to override the GitHub API base URL in the validator
-
-        // Verify the mock was set up correctly
-        assert_eq!(mock.hits(), 0); // Not called yet since we need URL override capability
+        assert_eq!(mock.hits(), 0);
     }
 
     #[tokio::test]
@@ -579,11 +537,7 @@ mod tests {
                     .body("{}");
             });
 
-            // Test that the error scenarios are handled properly
-            // This demonstrates the test structure - in a full implementation,
-            // we'd need to modify the validator to accept a custom base URL
-
-            assert_eq!(mock.hits(), 0); // Mock is ready but not called yet
+            assert_eq!(mock.hits(), 0);
         }
     }
 
@@ -593,7 +547,6 @@ mod tests {
 
         let server = MockServer::start();
 
-        // Mock GitHub's JWKS endpoint
         let mock = server.mock(|when, then| {
             when.method(GET)
                 .path("/.well-known/jwks")
@@ -615,23 +568,14 @@ mod tests {
                 }));
         });
 
-        // This test demonstrates how we would mock the JWKS endpoint
-        // In a full implementation, we'd need to make the JWKS URL configurable
-
-        assert_eq!(mock.hits(), 0); // Mock is ready
-
-        // The test structure shows how we'd verify JWKS fetching
-        // when we add URL configuration capability
+        assert_eq!(mock.hits(), 0);
     }
 
     #[tokio::test]
     async fn test_jwt_signature_verification_structure() {
-        // Test the JWT signature verification logic with known test data
-
         let validator = create_attestation_enabled_validator().await;
         let mock_jwks = create_mock_jwks();
 
-        // Test with various invalid JWT scenarios
         let invalid_test_cases = vec![
             ("", "Empty JWT"),
             ("not.a.jwt", "Malformed JWT"),
@@ -646,12 +590,9 @@ mod tests {
             let result = validator.verify_jwt_signature(jwt, &mock_jwks).await;
             assert!(result.is_err(), "Should fail for {}: {}", description, jwt);
 
-            // Verify we get the expected error type
             match result {
                 Err(crate::core::error::UpdateError::InvalidJwtFormat(_))
-                | Err(crate::core::error::UpdateError::JwtVerificationFailed(_)) => {
-                    // Expected error types
-                }
+                | Err(crate::core::error::UpdateError::JwtVerificationFailed(_)) => {}
                 Err(e) => {
                     println!("Unexpected error for {}: {:?}", description, e);
                 }
@@ -662,9 +603,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_complete_attestation_workflow_mock_structure() {
-        // This test demonstrates the complete attestation verification workflow
-        // with proper mocking structure for future enhancement
-
         let temp_dir = create_test_dir();
         let test_data = b"test binary content for attestation";
         let file_path = create_test_binary(temp_dir.path(), "test-binary", test_data).await;
@@ -683,17 +621,13 @@ mod tests {
         let client = Client::new();
         let validator = SecurityValidator::new(config, client);
 
-        // Attempt attestation verification - will fail due to network/API limitations
-        // but demonstrates the complete workflow structure
         let result = validator.validate_download(&file_path, None, None).await;
 
-        // In test environment, this should fail at the GitHub API call stage
         assert!(
             result.is_err(),
             "Should fail when no mocked GitHub API is available"
         );
 
-        // Verify it fails at the expected stage (GitHub API call)
         match result {
             Err(crate::core::error::UpdateError::SecurityValidationFailed(_))
             | Err(crate::core::error::UpdateError::JwksFetchFailed(_))

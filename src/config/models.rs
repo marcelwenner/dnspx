@@ -578,7 +578,7 @@ fn default_trusted_builders() -> Vec<String> {
 }
 
 fn default_check_interval() -> Duration {
-    Duration::from_secs(4 * 60 * 60) // 4 hours
+    Duration::from_secs(4 * 60 * 60)
 }
 
 impl Default for UpdateConfig {
@@ -673,7 +673,7 @@ fn default_allowed_domains() -> Vec<String> {
 }
 
 fn default_max_download_size() -> u64 {
-    100 // 100 MB
+    100 // MB(!)
 }
 
 impl Default for UpdateRollbackConfig {

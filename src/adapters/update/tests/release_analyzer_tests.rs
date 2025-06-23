@@ -2,12 +2,10 @@ use crate::adapters::update::release_analyzer::ReleaseAnalyzer;
 use crate::config::models::{UpdateAutoPolicy, UpdateLevel};
 use semver::Version;
 
-/// Creates a test ReleaseAnalyzer
 fn create_test_analyzer() -> ReleaseAnalyzer {
     ReleaseAnalyzer::new()
 }
 
-/// Creates a basic update policy for testing
 fn create_test_policy(update_level: UpdateLevel) -> UpdateAutoPolicy {
     UpdateAutoPolicy {
         update_level,
@@ -91,7 +89,6 @@ mod tests {
         let policy = create_test_policy(UpdateLevel::PatchOnly);
         let current = Version::new(1, 2, 3);
 
-        // Test patch updates allowed
         let patch_update = Version::new(1, 2, 4);
         let metadata = analyzer
             .analyze_release_notes("- Bug fix", "1.2.4")
@@ -104,7 +101,6 @@ mod tests {
             "Should allow patch updates with PatchOnly policy"
         );
 
-        // Test minor updates blocked
         let minor_update = Version::new(1, 3, 0);
         let minor_metadata = analyzer
             .analyze_release_notes("- New feature", "1.3.0")
@@ -124,7 +120,6 @@ mod tests {
         let policy = create_test_policy(UpdateLevel::MinorAndPatch);
         let current = Version::new(1, 2, 3);
 
-        // Test minor updates allowed
         let minor_update = Version::new(1, 3, 0);
         let metadata = analyzer
             .analyze_release_notes("- Add new feature", "1.3.0")
@@ -137,7 +132,6 @@ mod tests {
             "Should allow minor updates with MinorAndPatch policy"
         );
 
-        // Test major updates blocked
         let major_update = Version::new(2, 0, 0);
         let major_metadata = analyzer
             .analyze_release_notes("- Major version release", "2.0.0")
@@ -157,7 +151,6 @@ mod tests {
         let policy = create_test_policy(UpdateLevel::PatchOnly);
         let current = Version::new(1, 2, 3);
 
-        // Security fixes should allow minor updates even with PatchOnly policy
         let security_minor = Version::new(1, 3, 0);
         let security_metadata = analyzer
             .analyze_release_notes("- Security fix for vulnerability", "1.3.0")
@@ -177,7 +170,6 @@ mod tests {
         let policy = create_test_policy(UpdateLevel::All);
         let current = Version::new(1, 2, 3);
 
-        // Should never allow downgrades
         let downgrade = Version::new(1, 2, 2);
         let metadata = analyzer
             .analyze_release_notes("- Rollback release", "1.2.2")
@@ -193,7 +185,6 @@ mod tests {
         let policy = create_test_policy(UpdateLevel::All);
         let current = Version::new(1, 2, 3);
 
-        // Breaking changes should be blocked even with All policy
         let breaking_update = Version::new(2, 0, 0);
         let breaking_metadata = analyzer
             .analyze_release_notes("💥 Breaking: Remove old API", "2.0.0")
@@ -220,9 +211,9 @@ mod tests {
         let analyzer = create_test_analyzer();
 
         let v1_2_3 = Version::new(1, 2, 3);
-        let v1_2_4 = Version::new(1, 2, 4); // patch
-        let v1_3_0 = Version::new(1, 3, 0); // minor  
-        let v2_0_0 = Version::new(2, 0, 0); // major
+        let v1_2_4 = Version::new(1, 2, 4);
+        let v1_3_0 = Version::new(1, 3, 0);
+        let v2_0_0 = Version::new(2, 0, 0);
 
         assert!(
             !analyzer.has_breaking_changes(&v1_2_3, &v1_2_4),

@@ -153,22 +153,16 @@ impl ReleaseAnalyzer {
         new_version: &Version,
         metadata: &ReleaseMetadata,
     ) -> bool {
-        // Never allow downgrades
         if new_version <= current_version {
             return false;
         }
 
-        // Never allow updates with breaking changes unless explicitly configured
         if metadata.has_breaking_changes {
             return false;
         }
 
-        // Security fixes override update level restrictions (except for major versions)
-        if metadata.security_fixes {
-            // Allow security fixes up to minor version updates regardless of policy
-            if new_version.major == current_version.major {
-                return true;
-            }
+        if metadata.security_fixes && new_version.major == current_version.major {
+            return true;
         }
 
         match policy.update_level {

@@ -17,7 +17,6 @@ async fn test_manager_creation_with_default_config() {
 
     let manager = VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-    // Test that manager is created successfully
     assert!(manager.get_current_version() == env!("CARGO_PKG_VERSION"));
 }
 
@@ -26,7 +25,7 @@ async fn test_manager_creation_with_custom_config() {
     let config = UpdateConfig {
         enabled: true,
         github_repo: "test/repo".to_string(),
-        check_interval: Duration::from_secs(3600 * 12), // 12 hours
+        check_interval: Duration::from_secs(3600 * 12),
         auto_update_policy: UpdateAutoPolicy {
             update_level: UpdateLevel::MinorAndPatch,
             allow_breaking_changes: false,
@@ -49,7 +48,7 @@ async fn test_manager_creation_with_minimal_config() {
     let config = UpdateConfig {
         enabled: false,
         github_repo: "minimal/repo".to_string(),
-        check_interval: Duration::from_secs(3600), // 1 hour
+        check_interval: Duration::from_secs(3600),
         auto_update_policy: UpdateAutoPolicy {
             update_level: UpdateLevel::None,
             allow_breaking_changes: false,
@@ -80,7 +79,7 @@ async fn test_update_configuration() {
     let new_config = UpdateConfig {
         enabled: true,
         github_repo: "updated/repo".to_string(),
-        check_interval: Duration::from_secs(3600 * 6), // 6 hours
+        check_interval: Duration::from_secs(3600 * 6),
         auto_update_policy: UpdateAutoPolicy {
             update_level: UpdateLevel::None,
             allow_breaking_changes: false,
@@ -91,7 +90,6 @@ async fn test_update_configuration() {
     };
 
     manager.update_config(new_config).await;
-    // Configuration updated successfully if no panic
 }
 
 #[cfg(test)]
@@ -99,7 +97,6 @@ mod mock_tests {
     use super::*;
     use serde_json::json;
 
-    // Mock GitHub API response for testing
     fn create_mock_github_response() -> serde_json::Value {
         json!({
             "tag_name": "v1.2.0",
@@ -124,20 +121,15 @@ mod mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // This test would require mocking the HTTP client
-        // For now, we'll test the basic structure
         let result = manager.check_for_updates().await;
 
-        // In a real test, we'd mock the GitHub API response
-        // For now, just verify the method can be called
         match result {
-            Ok(_) | Err(_) => {} // Both outcomes are acceptable for this test
+            Ok(_) | Err(_) => {}
         }
     }
 
     #[tokio::test]
     async fn test_check_for_updates_no_update_available() {
-        // Test case where current version is already the latest
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -146,27 +138,14 @@ mod mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Mock scenario where no update is needed
-        // This would require mocking the version comparison logic
         let result = manager.check_for_updates().await;
 
-        // Test structure for now - would be expanded with proper mocking
         match result {
-            Ok(UpdateResult::UpToDate) => {
-                // Expected when current version is latest
-            }
-            Ok(UpdateResult::UpdateAvailable(_)) => {
-                // Also acceptable - depends on actual version comparison
-            }
-            Ok(UpdateResult::UpdateInstalled { .. }) => {
-                // Possible if previous update was recorded
-            }
-            Ok(UpdateResult::UpdateFailed { .. }) => {
-                // Possible if previous update failed
-            }
-            Err(_) => {
-                // Network errors are also acceptable in this test environment
-            }
+            Ok(UpdateResult::UpToDate) => {}
+            Ok(UpdateResult::UpdateAvailable(_)) => {}
+            Ok(UpdateResult::UpdateInstalled { .. }) => {}
+            Ok(UpdateResult::UpdateFailed { .. }) => {}
+            Err(_) => {}
         }
     }
 
@@ -192,16 +171,7 @@ mod mock_tests {
 
         let result = manager.install_update(&update_info).await;
 
-        // In a real test environment, this would likely fail due to missing files
-        // but we're testing the method structure
-        match result {
-            Ok(_) => {
-                // Success case - update installed
-            }
-            Err(_) => {
-                // Expected in test environment without proper setup
-            }
-        }
+        if result.is_ok() {}
     }
 
     #[tokio::test]
@@ -216,24 +186,15 @@ mod mock_tests {
 
         let result = manager.rollback_update().await;
 
-        // Test method availability
-        match result {
-            Ok(_) => {
-                // Rollback successful
-            }
-            Err(_) => {
-                // Expected if no backup exists
-            }
-        }
+        if result.is_ok() {}
     }
 
     #[tokio::test]
     async fn test_background_checker_lifecycle() {
-        // Test that we can create the manager (background checker testing requires more complex mocking)
         let config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_millis(100), // Short interval for testing
+            check_interval: Duration::from_millis(100),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::None,
                 allow_breaking_changes: false,
@@ -250,11 +211,7 @@ mod mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Verify manager was created successfully
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
-
-        // Background checker testing would require complex mocking of AppLifecycleManagerPort
-        // which has many required methods - this is better tested in integration tests
     }
 
     #[tokio::test]
@@ -262,7 +219,7 @@ mod mock_tests {
         let initial_config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_secs(86400), // 24 hours
+            check_interval: Duration::from_secs(86400),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::None,
                 allow_breaking_changes: false,
@@ -283,11 +240,10 @@ mod mock_tests {
             backup_dir,
         );
 
-        // Update configuration
         let new_config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_secs(3600), // 1 hour
+            check_interval: Duration::from_secs(3600),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::PatchOnly,
                 allow_breaking_changes: false,
@@ -298,9 +254,6 @@ mod mock_tests {
         };
 
         manager.update_config(new_config).await;
-
-        // The configuration should be updated successfully
-        // This would require more sophisticated testing with time mocking
     }
 }
 
@@ -312,7 +265,7 @@ mod error_handling_tests {
     async fn test_network_timeout_handling() {
         let config = UpdateConfig {
             enabled: true,
-            github_repo: "invalid-user/invalid-repo".to_string(), // Use invalid repo instead of invalid domain
+            github_repo: "invalid-user/invalid-repo".to_string(),
             check_interval: Duration::from_secs(3600),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::None,
@@ -332,27 +285,20 @@ mod error_handling_tests {
 
         let result = manager.check_for_updates().await;
 
-        // Should handle network errors gracefully
         match result {
             Err(error) => {
-                // Verify error contains appropriate information
                 let error_msg = error.to_string();
-                assert!(!error_msg.is_empty()); // Should have error message
+                assert!(!error_msg.is_empty());
             }
-            Ok(UpdateResult::UpToDate) => {
-                // May succeed if GitHub API returns 404 gracefully
-            }
-            Ok(_) => {
-                // Other outcomes possible depending on GitHub API behavior
-            }
+            Ok(UpdateResult::UpToDate) => {}
+            Ok(_) => {}
         }
     }
 
     #[tokio::test]
     async fn test_disabled_updates_handling() {
-        // Test behavior when updates are disabled
         let config = UpdateConfig {
-            enabled: false, // Updates disabled
+            enabled: false,
             github_repo: "test/repo".to_string(),
             check_interval: Duration::from_secs(3600),
             auto_update_policy: UpdateAutoPolicy {
@@ -373,11 +319,8 @@ mod error_handling_tests {
 
         let result = manager.check_for_updates().await;
 
-        // Should return UpToDate when updates are disabled
         match result {
-            Ok(UpdateResult::UpToDate) => {
-                // Expected behavior when updates are disabled
-            }
+            Ok(UpdateResult::UpToDate) => {}
             other => {
                 panic!("Expected UpToDate when updates disabled, got: {:?}", other);
             }
@@ -388,7 +331,7 @@ mod error_handling_tests {
     async fn test_insufficient_permissions_handling() {
         let config = UpdateConfig::default();
         let http_client = Client::new();
-        let current_binary_path = PathBuf::from("/root/protected/dnspx"); // Protected location
+        let current_binary_path = PathBuf::from("/root/protected/dnspx");
         let backup_dir = PathBuf::from("/root/protected/backups");
 
         let manager =
@@ -403,18 +346,13 @@ mod error_handling_tests {
             breaking_changes: false,
         };
 
-        // Attempt to install to a location where we don't have permissions
         let result = manager.install_update(&update_info).await;
 
-        // Should handle permission errors gracefully
         match result {
-            Ok(_) => {
-                // Unexpected success - might indicate test environment issues
-            }
+            Ok(_) => {}
             Err(error) => {
-                // Expected - should contain permission-related error information
                 let error_msg = error.to_string();
-                // Error message should be informative about the permission issue
+
                 assert!(!error_msg.is_empty());
             }
         }
@@ -425,14 +363,13 @@ mod error_handling_tests {
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
-        let backup_dir = PathBuf::from("/tmp/nonexistent_backups"); // Non-existent backup dir
+        let backup_dir = PathBuf::from("/tmp/nonexistent_backups");
 
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
         let is_available = manager.is_rollback_available().await;
 
-        // Should return false when no backup directory exists
         assert!(!is_available);
     }
 
@@ -448,7 +385,6 @@ mod error_handling_tests {
 
         let version = manager.get_current_version();
 
-        // Should return the compile-time version
         assert_eq!(version, env!("CARGO_PKG_VERSION"));
     }
 }
@@ -459,7 +395,6 @@ mod advanced_mock_tests {
 
     #[tokio::test]
     async fn test_security_error_blocks_update_process() {
-        // Test that when SecurityValidator returns an error, the manager aborts properly
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -468,7 +403,6 @@ mod advanced_mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Create update info that would normally be valid
         let update_info = UpdateInfo {
             version: "1.2.0".to_string(),
             download_url: "https://malicious-site.evil/fake-update.exe".to_string(),
@@ -478,34 +412,25 @@ mod advanced_mock_tests {
             breaking_changes: false,
         };
 
-        // In a real implementation, we'd inject the mock. For now, test that
-        // the manager properly handles when the security validator would block this
         let result = manager.install_update(&update_info).await;
 
-        // Should fail due to security validation (malicious domain)
         match result {
             Err(error) => {
                 let error_msg = error.to_string();
-                // Should contain security-related error information
+
                 assert!(!error_msg.is_empty());
-                // For this test, we verify the structure works, but a real mock would give us precise control
             }
             Ok(UpdateResult::UpdateFailed {
                 error,
                 rollback_performed: _,
             }) => {
-                // This is also acceptable - the manager detected the issue and failed safely
                 assert!(
                     error.contains("download")
                         || error.contains("validation")
                         || error.contains("network")
                 );
             }
-            Ok(_) => {
-                // This should not happen with a malicious URL
-                // Note: In test environment, this might succeed due to network mocking limitations
-                // but the test structure is correct for when we have proper mocking
-            }
+            Ok(_) => {}
         }
     }
 
@@ -519,7 +444,6 @@ mod advanced_mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Create update info with invalid checksum
         let update_info = UpdateInfo {
             version: "1.2.0".to_string(),
             download_url: "https://github.com/test/repo/releases/download/v1.2.0/binary.tar.gz"
@@ -532,37 +456,31 @@ mod advanced_mock_tests {
 
         let result = manager.install_update(&update_info).await;
 
-        // Should fail due to checksum validation
         match result {
             Err(error) => {
-                // Expected - security validation should catch this
                 assert!(!error.to_string().is_empty());
             }
             Ok(UpdateResult::UpdateFailed {
                 error,
                 rollback_performed,
             }) => {
-                // Also acceptable - manager caught the issue
                 assert!(
                     error.contains("checksum")
                         || error.contains("validation")
                         || error.contains("download")
                 );
-                // Rollback should be attempted when validation fails
+
                 assert!(rollback_performed || error.contains("rollback"));
             }
-            Ok(_) => {
-                // In test environment, this might happen due to network limitations
-                // Real implementation with mocks would give us precise control
-            }
+            Ok(_) => {}
         }
     }
 
     #[tokio::test]
     async fn test_download_size_limit_exceeded() {
         let mut config = UpdateConfig::default();
-        // Set a very small download size limit
-        config.security.max_download_size_mb = 1; // 1MB limit
+
+        config.security.max_download_size_mb = 1;
 
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -571,7 +489,6 @@ mod advanced_mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Test with a hypothetically large update
         let update_info = UpdateInfo {
             version: "1.2.0".to_string(),
             download_url:
@@ -585,23 +502,17 @@ mod advanced_mock_tests {
 
         let result = manager.install_update(&update_info).await;
 
-        // Should handle size limit appropriately
         match result {
             Err(error) => {
-                // Security validator should catch size violations
                 assert!(!error.to_string().is_empty());
             }
             Ok(UpdateResult::UpdateFailed {
                 error,
                 rollback_performed: _,
             }) => {
-                // Manager should fail safely for size violations
                 assert!(!error.is_empty());
             }
-            Ok(_) => {
-                // In test environment without real downloads, this might happen
-                // Real implementation would have precise size control
-            }
+            Ok(_) => {}
         }
     }
 
@@ -609,7 +520,7 @@ mod advanced_mock_tests {
     async fn test_transaction_commit_failure_triggers_rollback() {
         let config = UpdateConfig::default();
         let http_client = Client::new();
-        // Use a protected directory to simulate permission failure during commit
+
         let current_binary_path = PathBuf::from("/root/protected/dnspx");
         let backup_dir = PathBuf::from("/tmp/dnspx_backups");
 
@@ -628,16 +539,12 @@ mod advanced_mock_tests {
 
         let result = manager.install_update(&update_info).await;
 
-        // Should fail to commit due to permissions, and attempt rollback
         match result {
-            Err(_) => {
-                // Direct error is acceptable
-            }
+            Err(_) => {}
             Ok(UpdateResult::UpdateFailed {
                 error,
                 rollback_performed,
             }) => {
-                // This is the expected outcome - commit fails, rollback attempted
                 assert!(!error.is_empty());
                 assert!(
                     rollback_performed || error.contains("permission") || error.contains("access"),
@@ -646,11 +553,9 @@ mod advanced_mock_tests {
                 );
             }
             Ok(UpdateResult::UpdateInstalled { .. }) => {
-                // Unexpected success with protected directory
                 panic!("Should not succeed when installing to protected directory");
             }
             Ok(_) => {
-                // Other states not expected for this test
                 panic!("Unexpected result state");
             }
         }
@@ -658,7 +563,6 @@ mod advanced_mock_tests {
 
     #[tokio::test]
     async fn test_manager_error_reporting_precision() {
-        // Test that the manager provides detailed, actionable error messages
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -667,7 +571,6 @@ mod advanced_mock_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Test with clearly invalid update info
         let update_info = UpdateInfo {
             version: "invalid-version-string".to_string(),
             download_url: "not-a-valid-url".to_string(),
@@ -679,12 +582,11 @@ mod advanced_mock_tests {
 
         let result = manager.install_update(&update_info).await;
 
-        // Should fail with informative error
         match result {
             Err(error) => {
                 let error_msg = error.to_string();
                 assert!(!error_msg.is_empty());
-                // Error should be informative about what went wrong
+
                 assert!(
                     error_msg.contains("version")
                         || error_msg.contains("url")
@@ -705,7 +607,6 @@ mod advanced_mock_tests {
                 );
             }
             Ok(_) => {
-                // Should not succeed with invalid data
                 panic!("Should not succeed with invalid version and URL");
             }
         }
@@ -719,7 +620,6 @@ mod background_checker_tests {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
-    // Mock structures for sophisticated background testing
     struct MockUserInteraction {
         messages: Arc<Mutex<VecDeque<(String, crate::core::types::MessageLevel)>>>,
     }
@@ -772,7 +672,6 @@ mod background_checker_tests {
         fn display_prompt(&self, _prompt_text: &str) {}
     }
 
-    // Simplified mock for AppLifecycleManagerPort - just focusing on the cancellation token
     struct MockAppLifecycle {
         cancellation_token: tokio_util::sync::CancellationToken,
         user_interaction: Arc<MockUserInteraction>,
@@ -795,23 +694,12 @@ mod background_checker_tests {
         }
     }
 
-    // Note: Full AppLifecycleManagerPort implementation would require many more methods
-    // For background checker testing, we focus on the cancellation and user interaction aspects
-
     #[tokio::test]
     async fn test_background_checker_timing_intervals() {
-        // Test that background checker respects timing intervals
-
-        // Note: This is a structural test. Full time control would require:
-        // 1. tokio::time::pause() at start
-        // 2. tokio::time::advance() to simulate time passage
-        // 3. Mocked UpdateManager to count check_for_updates calls
-        // 4. Verification that calls happen at expected intervals
-
         let config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_millis(100), // Fast for testing
+            check_interval: Duration::from_millis(100),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::None,
                 allow_breaking_changes: false,
@@ -832,25 +720,15 @@ mod background_checker_tests {
             backup_dir,
         ));
 
-        // Test that we can create the configuration for background checking
-        // In a full implementation, we would:
-        // - Mock the app lifecycle manager
-        // - Use tokio::time::pause() and advance()
-        // - Count actual check_for_updates calls
-
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
-
-        // This test verifies the structure is in place for time-controlled testing
-        // Real time control would require more sophisticated mocking infrastructure
     }
 
     #[tokio::test]
     async fn test_background_checker_configuration_updates() {
-        // Test that configuration changes update the checker's behavior
         let initial_config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_secs(3600), // 1 hour
+            check_interval: Duration::from_secs(3600),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::None,
                 allow_breaking_changes: false,
@@ -871,11 +749,10 @@ mod background_checker_tests {
             backup_dir,
         );
 
-        // Update configuration to shorter interval
         let new_config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_secs(300), // 5 minutes
+            check_interval: Duration::from_secs(300),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::PatchOnly,
                 allow_breaking_changes: false,
@@ -887,18 +764,15 @@ mod background_checker_tests {
 
         manager.update_config(new_config).await;
 
-        // Configuration should be updated successfully
-        // In a full test, we'd verify the background checker picks up the new interval
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]
     async fn test_background_checker_auto_update_policy_enforcement() {
-        // Test that auto-update policies are properly enforced
         let config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_millis(50), // Fast for testing
+            check_interval: Duration::from_millis(50),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::PatchOnly,
                 allow_breaking_changes: false,
@@ -919,31 +793,20 @@ mod background_checker_tests {
             backup_dir,
         ));
 
-        // Test structure for auto-update policy enforcement
-        // In full implementation, we'd:
-        // 1. Mock check_for_updates to return specific update scenarios
-        // 2. Verify that only patch updates are auto-installed with PatchOnly policy
-        // 3. Verify that minor/major updates require manual intervention
-
-        // Verify basic functionality
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
 
-        // Test that we can check for updates (would be mocked in full implementation)
         let check_result = manager.check_for_updates().await;
         match check_result {
-            Ok(_) | Err(_) => {
-                // Both outcomes acceptable - we're testing structure
-            }
+            Ok(_) | Err(_) => {}
         }
     }
 
     #[tokio::test]
     async fn test_background_checker_graceful_shutdown() {
-        // Test that background checker shuts down gracefully when cancelled
         let config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
-            check_interval: Duration::from_millis(50), // Fast for testing
+            check_interval: Duration::from_millis(50),
             auto_update_policy: UpdateAutoPolicy {
                 update_level: UpdateLevel::None,
                 allow_breaking_changes: false,
@@ -964,23 +827,17 @@ mod background_checker_tests {
             backup_dir,
         ));
 
-        // Test cancellation behavior
         let cancellation_token = tokio_util::sync::CancellationToken::new();
 
-        // Simulate cancellation
         cancellation_token.cancel();
 
-        // Verify the token is cancelled
         assert!(cancellation_token.is_cancelled());
 
-        // In full implementation, we'd start the background checker and verify
-        // it responds to cancellation within a reasonable time
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]
     async fn test_background_checker_concurrent_operations() {
-        // Test handling of concurrent operations during background checking
         let config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
@@ -1005,7 +862,6 @@ mod background_checker_tests {
             backup_dir,
         ));
 
-        // Test concurrent operations
         let manager1 = manager.clone();
         let manager2 = manager.clone();
 
@@ -1015,18 +871,8 @@ mod background_checker_tests {
 
         let (result1, result2) = tokio::join!(handle1, handle2);
 
-        // Both operations should complete without panicking
-        match (result1, result2) {
-            (Ok(_), Ok(_)) => {
-                // Both completed successfully
-            }
-            _ => {
-                // One or both may have failed due to test environment limitations
-                // The important thing is no panics occurred
-            }
-        }
+        if let (Ok(_), Ok(_)) = (result1, result2) {}
 
-        // Verify manager is still functional
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
     }
 }
@@ -1036,19 +882,8 @@ mod end_to_end_simulation_tests {
     use super::*;
     use std::sync::Arc;
 
-    // These tests simulate end-to-end scenarios that would be fully implemented in CI
-    // They serve as structural tests and documentation for the complete E2E approach
-
     #[tokio::test]
     async fn test_complete_update_cycle_simulation() {
-        // This test outlines the structure for a complete update cycle test
-        // In CI, this would involve:
-        // 1. Building an old version of dnspx
-        // 2. Starting a mock GitHub API server
-        // 3. Executing the actual update command
-        // 4. Verifying the binary was replaced
-        // 5. Testing the new binary functionality
-
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -1057,47 +892,32 @@ mod end_to_end_simulation_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Step 1: Verify current version detection
         let current_version = manager.get_current_version();
         assert_eq!(current_version, env!("CARGO_PKG_VERSION"));
 
-        // Step 2: Test update check (would use mock server in CI)
         let check_result = manager.check_for_updates().await;
         match check_result {
-            Ok(UpdateResult::UpToDate) => {
-                // No update available - expected for same version
-            }
+            Ok(UpdateResult::UpToDate) => {}
             Ok(UpdateResult::UpdateAvailable(update_info)) => {
-                // Update available - would proceed with installation in CI
                 assert!(!update_info.version.is_empty());
                 assert!(!update_info.download_url.is_empty());
             }
-            Err(_) => {
-                // Network error - acceptable in test environment
-            }
-            _ => {
-                // Other results possible
-            }
+            Err(_) => {}
+            _ => {}
         }
 
-        // Step 3: In CI, we would test actual installation with real binaries
-        // For now, verify the manager structure supports this flow
-        assert!(!manager.is_rollback_available().await); // No backup yet
+        assert!(!manager.is_rollback_available().await);
     }
 
     #[tokio::test]
     async fn test_cross_platform_compatibility_structure() {
-        // This test verifies the manager works with different platform configurations
-        // In CI, this would be run on Linux, Windows, and macOS
-
         let config = UpdateConfig::default();
         let http_client = Client::new();
 
-        // Test different platform binary paths
         let platform_paths = vec![
-            PathBuf::from("/usr/local/bin/dnspx"),         // Linux/macOS
-            PathBuf::from("C:\\Program Files\\dnspx.exe"), // Windows
-            PathBuf::from("/opt/dnspx/bin/dnspx"),         // Alternative Linux
+            PathBuf::from("/usr/local/bin/dnspx"),
+            PathBuf::from("C:\\Program Files\\dnspx.exe"),
+            PathBuf::from("/opt/dnspx/bin/dnspx"),
         ];
 
         for binary_path in platform_paths {
@@ -1113,20 +933,15 @@ mod end_to_end_simulation_tests {
                 backup_dir,
             );
 
-            // Verify manager can be created with different path configurations
             assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
 
-            // Test rollback availability check with different paths
             let rollback_available = manager.is_rollback_available().await;
-            assert!(!rollback_available); // No backups initially
+            assert!(!rollback_available);
         }
     }
 
     #[tokio::test]
     async fn test_network_condition_simulation() {
-        // This test simulates various network conditions
-        // In CI, this would use network simulation tools
-
         let config = UpdateConfig {
             enabled: true,
             github_repo: "test/repo".to_string(),
@@ -1141,7 +956,7 @@ mod end_to_end_simulation_tests {
         };
 
         let http_client = Client::builder()
-            .timeout(Duration::from_millis(100)) // Very short timeout to simulate poor network
+            .timeout(Duration::from_millis(100))
             .build()
             .expect("Failed to create HTTP client");
 
@@ -1151,40 +966,29 @@ mod end_to_end_simulation_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Test behavior with network timeout
         let start_time = std::time::Instant::now();
         let check_result = manager.check_for_updates().await;
         let duration = start_time.elapsed();
 
-        match check_result {
-            Err(_) => {
-                // Expected - network timeout or error
-                // Verify it failed reasonably quickly (within a few seconds)
-                assert!(
-                    duration < Duration::from_secs(5),
-                    "Should fail quickly with short timeout"
-                );
-            }
-            Ok(_) => {
-                // Might succeed in test environment - that's also acceptable
-            }
+        if check_result.is_err() {
+            assert!(
+                duration < Duration::from_secs(5),
+                "Should fail quickly with short timeout"
+            );
         }
 
-        // Verify manager is still functional after network error
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]
     async fn test_permission_scenarios() {
-        // Test various permission scenarios that would be tested in CI
         let config = UpdateConfig::default();
         let http_client = Client::new();
 
-        // Test scenarios with different permission levels
         let permission_scenarios = vec![
-            ("/usr/local/bin/dnspx", "/tmp/backups"), // Standard permissions
-            ("/root/protected/dnspx", "/root/protected/backups"), // Restricted permissions
-            ("/opt/dnspx/dnspx", "/var/lib/dnspx/backups"), // System-level installation
+            ("/usr/local/bin/dnspx", "/tmp/backups"),
+            ("/root/protected/dnspx", "/root/protected/backups"),
+            ("/opt/dnspx/dnspx", "/var/lib/dnspx/backups"),
         ];
 
         for (binary_path, backup_dir) in permission_scenarios {
@@ -1195,7 +999,6 @@ mod end_to_end_simulation_tests {
                 PathBuf::from(backup_dir),
             );
 
-            // Test update info with dummy data
             let update_info = UpdateInfo {
                 version: "1.0.1".to_string(),
                 download_url: "https://github.com/test/repo/releases/download/v1.0.1/binary.tar.gz"
@@ -1206,35 +1009,25 @@ mod end_to_end_simulation_tests {
                 breaking_changes: false,
             };
 
-            // Attempt installation - should handle permission errors gracefully
             let install_result = manager.install_update(&update_info).await;
 
             match install_result {
-                Err(_) => {
-                    // Expected for restricted paths
-                }
+                Err(_) => {}
                 Ok(UpdateResult::UpdateFailed {
                     error,
                     rollback_performed: _,
                 }) => {
-                    // Also expected - manager should fail safely
                     assert!(!error.is_empty());
                 }
-                Ok(_) => {
-                    // Unexpected success, but acceptable in test environment
-                }
+                Ok(_) => {}
             }
 
-            // Manager should remain functional after permission errors
             assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
         }
     }
 
     #[tokio::test]
     async fn test_health_check_simulation() {
-        // Test health check scenarios
-        // In CI, this would test with real binaries
-
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -1243,24 +1036,14 @@ mod end_to_end_simulation_tests {
         let manager =
             VerifiedUpdateManager::new(config, http_client, current_binary_path, backup_dir);
 
-        // Test rollback availability (health check would be part of rollback)
         let rollback_available = manager.is_rollback_available().await;
-        assert!(!rollback_available); // Initially no backups
-
-        // In CI, we would:
-        // 1. Create a backup by preparing a transaction
-        // 2. Test rollback with health check enabled
-        // 3. Verify the health check passes for valid binaries
-        // 4. Verify the health check fails for corrupted binaries
+        assert!(!rollback_available);
 
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]
     async fn test_stress_testing_structure() {
-        // Structure for stress testing the update system
-        // In CI, this would involve multiple concurrent operations
-
         let config = UpdateConfig::default();
         let http_client = Client::new();
         let current_binary_path = PathBuf::from("/usr/local/bin/dnspx");
@@ -1273,7 +1056,6 @@ mod end_to_end_simulation_tests {
             backup_dir,
         ));
 
-        // Test concurrent check operations
         let check_count = 10;
         let mut handles = Vec::new();
 
@@ -1286,7 +1068,6 @@ mod end_to_end_simulation_tests {
             handles.push(handle);
         }
 
-        // Wait for all checks to complete
         let mut results = Vec::new();
         for handle in handles {
             match handle.await {
@@ -1294,16 +1075,13 @@ mod end_to_end_simulation_tests {
                     results.push((i, result));
                 }
                 Err(_) => {
-                    // Task panicked - not acceptable
                     panic!("Update check task should not panic");
                 }
             }
         }
 
-        // Verify all operations completed
         assert_eq!(results.len(), check_count);
 
-        // Verify manager is still functional after stress test
         assert_eq!(manager.get_current_version(), env!("CARGO_PKG_VERSION"));
     }
 }

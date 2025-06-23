@@ -184,7 +184,6 @@ impl SecurityValidator {
     }
 
     pub(crate) async fn get_cached_jwks(&self) -> Result<GitHubJwks, UpdateError> {
-        // Check if we have a valid cached JWKS
         {
             let cache = self.jwks_cache.read().map_err(|_| {
                 UpdateError::JwksFetchFailed(
@@ -202,11 +201,9 @@ impl SecurityValidator {
             }
         }
 
-        // Cache is expired or empty, fetch new JWKS
         debug!("JWKS cache expired or empty, fetching fresh JWKS");
         let fresh_jwks = self.fetch_github_jwks().await?;
 
-        // Update cache
         {
             let mut cache = self.jwks_cache.write().map_err(|_| {
                 UpdateError::JwksFetchFailed(
@@ -218,7 +215,7 @@ impl SecurityValidator {
                 jwks: GitHubJwks {
                     keys: fresh_jwks.keys.clone(),
                 },
-                cached_until: Instant::now() + Duration::from_secs(600), // Cache for 10 minutes
+                cached_until: Instant::now() + Duration::from_secs(600),
             });
         }
 
@@ -232,7 +229,6 @@ impl SecurityValidator {
     ) -> Result<serde_json::Value, UpdateError> {
         debug!("Verifying JWT signature for attestation");
 
-        // Decode JWT header to get the key ID
         let header = decode_header(jwt_token).map_err(|e| {
             UpdateError::InvalidJwtFormat(format!("Failed to decode JWT header: {}", e))
         })?;
@@ -243,7 +239,6 @@ impl SecurityValidator {
 
         debug!("JWT requires key ID: {}", kid);
 
-        // Find the matching key in JWKS
         let jwk = jwks.keys.iter().find(|k| k.key_id == kid).ok_or_else(|| {
             UpdateError::JwtVerificationFailed(format!(
                 "No matching key found for kid '{}' in JWKS",
@@ -253,7 +248,6 @@ impl SecurityValidator {
 
         debug!("Found matching JWK for kid: {}", kid);
 
-        // Verify this is an RSA key
         if jwk.key_type != "RSA" {
             return Err(UpdateError::JwtVerificationFailed(format!(
                 "Unsupported key type '{}', expected 'RSA'",
@@ -261,7 +255,6 @@ impl SecurityValidator {
             )));
         }
 
-        // Create RSA public key from modulus and exponent
         let decoding_key =
             DecodingKey::from_rsa_components(&jwk.modulus, &jwk.exponent).map_err(|e| {
                 UpdateError::JwtVerificationFailed(format!(
@@ -270,12 +263,10 @@ impl SecurityValidator {
                 ))
             })?;
 
-        // Configure validation
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&["https://token.actions.githubusercontent.com"]);
         validation.set_audience(&["attestations"]);
 
-        // Verify the JWT signature and decode the payload
         let token_data = decode::<serde_json::Value>(jwt_token, &decoding_key, &validation)
             .map_err(|e| {
                 UpdateError::JwtVerificationFailed(format!(
@@ -291,7 +282,6 @@ impl SecurityValidator {
     async fn verify_attestation(&self, file_path: &Path) -> Result<(), UpdateError> {
         info!("Verifying build attestation for: {}", file_path.display());
 
-        // Compute the SHA256 hash of the file for attestation verification
         let file_content = fs::read(file_path)
             .await
             .map_err(|e| UpdateError::FileSystem {
@@ -305,7 +295,6 @@ impl SecurityValidator {
 
         debug!("File SHA256: {}", file_hash);
 
-        // Extract filename for attestation lookup
         let filename = file_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -313,16 +302,12 @@ impl SecurityValidator {
                 UpdateError::SecurityValidationFailed("Invalid file path".to_string())
             })?;
 
-        // For GitHub releases, attestations are typically associated with the repository
-        // We'll use a heuristic to extract the repository from allowed domains
         let github_repo = self.extract_github_repo()?;
 
-        // Fetch attestations from GitHub API
         let attestations = self
             .fetch_github_attestations(&github_repo, filename)
             .await?;
 
-        // Verify at least one attestation matches our file
         let mut attestation_verified = false;
         for attestation in attestations {
             match self
@@ -351,7 +336,6 @@ impl SecurityValidator {
     }
 
     pub(crate) fn extract_github_repo(&self) -> Result<String, UpdateError> {
-        // Use the configured attestation repository
         Ok(self.config.attestation_repo.clone())
     }
 
@@ -362,7 +346,6 @@ impl SecurityValidator {
     ) -> Result<Vec<GitHubAttestation>, UpdateError> {
         debug!("Fetching attestations for {} from repo {}", filename, repo);
 
-        // GitHub's attestations API endpoint
         let url = format!("https://api.github.com/repos/{}/attestations", repo);
 
         let response = self
@@ -389,7 +372,6 @@ impl SecurityValidator {
         let attestations_response: serde_json::Value =
             response.json().await.map_err(UpdateError::Network)?;
 
-        // GitHub returns attestations in an array under "attestations"
         let attestations_array = attestations_response
             .get("attestations")
             .and_then(|v| v.as_array())
@@ -425,16 +407,12 @@ impl SecurityValidator {
     ) -> Result<(), UpdateError> {
         debug!("Verifying individual attestation for {}", filename);
 
-        // Get the JWT token from the DSSE envelope
         let jwt_token = &attestation.bundle.dsse_envelope.payload;
 
-        // Fetch JWKS for signature verification
         let jwks = self.get_cached_jwks().await?;
 
-        // Verify JWT signature and get the payload
         let verified_payload = self.verify_jwt_signature(jwt_token, &jwks).await?;
 
-        // Convert the verified payload to string for SLSA parsing
         let payload_str = serde_json::to_string(&verified_payload).map_err(|e| {
             UpdateError::SecurityValidationFailed(format!(
                 "Failed to serialize verified JWT payload: {}",
@@ -442,7 +420,6 @@ impl SecurityValidator {
             ))
         })?;
 
-        // Parse the SLSA provenance
         let provenance: SlsaProvenance = serde_json::from_str(&payload_str).map_err(|e| {
             UpdateError::SecurityValidationFailed(format!("Failed to parse SLSA provenance: {}", e))
         })?;
@@ -450,14 +427,12 @@ impl SecurityValidator {
         debug!("SLSA provenance type: {}", provenance.type_);
         debug!("SLSA predicate type: {}", provenance.predicate_type);
 
-        // Verify this is a valid SLSA provenance
         if !provenance.predicate_type.contains("slsa-provenance") {
             return Err(UpdateError::SecurityValidationFailed(
                 "Not a valid SLSA provenance attestation".to_string(),
             ));
         }
 
-        // Find the subject that matches our file
         let mut subject_found = false;
         for subject in &provenance.subject {
             if subject.name.contains(filename) || subject.name.ends_with(filename) {
@@ -484,7 +459,6 @@ impl SecurityValidator {
             )));
         }
 
-        // Verify the builder is in the trusted builders list
         let builder_trusted = self.config.trusted_builders.iter().any(|trusted| {
             provenance.predicate.builder.id.contains(trusted)
                 || provenance.predicate.builder.id.starts_with(trusted)
@@ -571,15 +545,12 @@ impl SecurityValidator {
     }
 
     pub(crate) fn validate_url(&self, url: &str) -> Result<(), UpdateError> {
-        // Parse URL to validate format
         let parsed_url = url::Url::parse(url)
             .map_err(|_| UpdateError::SecurityValidationFailed("Invalid URL format".to_string()))?;
 
-        // Check protocol
         match parsed_url.scheme() {
-            "https" => {} // Always allowed
+            "https" => {}
             "http" => {
-                // Only allow HTTP for localhost/test scenarios
                 if let Some(host) = parsed_url.host_str() {
                     if !host.starts_with("127.0.0.1") && !host.starts_with("localhost") {
                         return Err(UpdateError::SecurityValidationFailed(
@@ -596,7 +567,6 @@ impl SecurityValidator {
             }
         }
 
-        // Check domain whitelist
         if let Some(host) = parsed_url.host_str() {
             let is_allowed = self
                 .config
