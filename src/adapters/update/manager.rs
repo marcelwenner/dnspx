@@ -81,6 +81,39 @@ impl VerifiedUpdateManager {
 
         info!("Update background checker started");
 
+        debug!("Performing initial update check at startup");
+        match self.check_for_updates().await {
+            Ok(UpdateResult::UpdateAvailable(update_info)) => {
+                user_interaction.display_message(
+                    &format!(
+                        "Update available: v{} (current: v{})",
+                        update_info.version,
+                        self.get_current_version()
+                    ),
+                    MessageLevel::Info,
+                );
+
+                if update_info.breaking_changes {
+                    user_interaction.display_message(
+                        "⚠️  This update contains breaking changes. Review release notes before installing.",
+                        MessageLevel::Warning,
+                    );
+                }
+            }
+            Ok(UpdateResult::UpToDate) => {
+                debug!("Already running latest version");
+            }
+            Ok(UpdateResult::UpdateInstalled { .. }) => {
+                debug!("Unexpected UpdateInstalled result during check");
+            }
+            Ok(UpdateResult::UpdateFailed { .. }) => {
+                debug!("Unexpected UpdateFailed result during check");
+            }
+            Err(e) => {
+                debug!("Initial update check failed: {}", e);
+            }
+        }
+
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled() => {
