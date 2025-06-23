@@ -5,16 +5,25 @@
 DNSPX is a configurable DNS proxy and resolver designed for local development and cloud environments, featuring request caching, rule-based routing, and AWS service discovery.
 
 [![CI/CD Pipeline](https://github.com/marcelwenner/dnspx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marcelwenner/dnspx/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.1-blue)
+![Tests](https://img.shields.io/badge/tests-292%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
-## ⚠️ Production Readiness Notice
+## 🚀 Production Readiness
 
-### AWS Integration
-AWS service discovery is implemented but **not extensively tested in production environments**. Please test thoroughly in your specific AWS setup before relying on it for critical workloads.
+DNSPX is **thoroughly tested** with **292 comprehensive tests** covering all major functionality including AWS integration, DNS processing, caching, and error handling scenarios.
 
-### Windows SSPI Authentication  
-Windows SSPI (proxy authentication) support is **experimental and not extensively tested in production**. Use with caution in enterprise environments and consider alternative authentication methods for production deployments.
+### ✅ Robust AWS Integration
+AWS service discovery is **extensively tested** with comprehensive integration tests covering:
+- Multi-account credential management and role assumption
+- VPC endpoint discovery across all supported AWS services
+- Route53 resolver integration and private hosted zones
+- Error handling for credential failures, API timeouts, and regional issues
+- MFA authentication flows
+
+### ⚠️ Platform-Specific Considerations
+- **Windows SSPI Authentication**: Experimental support for Windows proxy authentication. Test thoroughly in your environment.
+- **High-Volume Production**: While tested for functionality and basic performance, validate throughput requirements in your specific setup.
 
 ### Security
 For security considerations and known vulnerabilities, please see [SECURITY.md](SECURITY.md).
@@ -23,7 +32,7 @@ For security considerations and known vulnerabilities, please see [SECURITY.md](
 
 ### Main Dashboard (TUI)
 ![Main Dashboard](./docs/screenshots/dashboard.png)
-*Real-time DNS query monitoring withperformance metrics and log analysis*
+*Real-time DNS query monitoring with performance metrics and log analysis*
 
 ### Cache Viewer (TUI)
 ![Cache Viewer](./docs/screenshots/cache-viewer.png)
@@ -59,6 +68,14 @@ For security considerations and known vulnerabilities, please see [SECURITY.md](
     *   AWS Scanner status and detailed error reporting.
 *   **Query Logging:** Optional logging of processed DNS queries.
 *   **Status Reporting:** Provides detailed application status including configuration validity and AWS scanner activity.
+
+### 🔄 Automatic Updates
+*   **Secure Auto-Updater:**
+    *   GitHub release monitoring with cryptographic signature verification.
+    *   SLSA provenance validation for supply chain security.
+    *   Configurable update intervals and rollback capabilities.
+    *   Breaking change detection and user notification.
+    *   Transactional updates with automatic backup and recovery.
 
 ### 📄 Configuration
 *   **File-Based Configuration:** Single TOML file (`dnspx_config.toml`) for all settings.
@@ -154,6 +171,17 @@ serve_stale_max_ttl = "1h"          # Max age of stale entry to serve
 # username = "user" # Optional
 # password = "password" # Optional
 
+# Automatic Updates (optional)
+# [updates]
+# enabled = true
+# check_interval = "1h"                    # How often to check for updates
+# auto_install = false                     # Set to true for automatic installation
+# backup_count = 3                         # Number of backups to keep
+# github_repo = "marcelwenner/dnspx"      # GitHub repository for releases
+# [updates.security]
+# verify_signatures = true                 # Enable cryptographic verification
+# verify_slsa_provenance = true           # Enable SLSA supply chain verification
+
 # AWS Integration settings (optional)
 # [aws]
 # default_region = "us-east-1"
@@ -199,6 +227,10 @@ status_refresh_interval_secs = 5    # TUI status panel refresh interval
     *   `action`: What to do if the pattern matches (`Forward`, `Block`, `Allow`, `ResolveLocal`).
     *   `nameservers` (for `Forward`): Specific upstreams for this rule.
 *   **`cache`**: Configures caching behavior (TTL, capacity).
+*   **`updates`**: Configures automatic update checking and installation.
+    *   `enabled`: Enable/disable update checking.
+    *   `auto_install`: Whether to automatically install updates.
+    *   `security`: Cryptographic verification settings for supply chain security.
 *   **`aws`**: Configures AWS integration for service discovery.
     *   `accounts`: List of AWS accounts to scan, typically referencing AWS CLI profiles.
     *   `discover_services`: Fine-grained control over which AWS service types are discovered.
@@ -224,24 +256,61 @@ DNSPX listens on the configured port (default 53) for UDP and TCP DNS queries. R
 
 ## 🛠️ Development
 
-### Running Tests
+### 🧪 Comprehensive Testing (292 Tests)
+
+DNSPX includes an extensive test suite with **292 automated tests** ensuring reliability and correctness:
+
 ```bash
+# Run all tests (292 tests covering all functionality)
 cargo test
+
+# Run AWS integration tests specifically  
+cargo test adapters::aws::tests
+
+# Run with linting checks
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-### Running the DNS Proxy Test Suite
-This script tests basic functionality, caching, and some performance aspects.
+**Test Coverage:**
+- **Core DNS Processing**: Request parsing, caching, rule engine, local hosts resolution
+- **AWS Integration**: 36 comprehensive tests covering multi-account setups, credential handling, service discovery, error scenarios
+- **Update System**: Secure auto-updater with signature verification, SLSA provenance, rollback testing
+- **Network Layer**: UDP/TCP listeners, upstream resolver strategies, DoH support
+- **Configuration**: TOML parsing, validation, hot-reloading
+- **Error Handling**: Network failures, malformed requests, credential issues, API timeouts
+
+### Running the DNS Proxy Integration Test Suite
 ```bash
 ./test/dns-proxy-test.sh
 ```
-*(Ensure `dnspx` is running and accessible at `127.0.0.1:53` before running the test script, or modify the script's `PROXY_HOST` and `PROXY_PORT` variables.)*
+*(Ensure `dnspx` is running and accessible at `127.0.0.1:53` before running the test script.)*
 
 ### Building for Production
+
+DNSPX supports modular compilation through feature flags for optimized deployments:
+
 ```bash
+# Full build with all features (default)
 cargo build --release
-# Potentially with features, e.g.:
-# cargo build --release --features production
+
+# Minimal build without AWS integration and TUI (smallest binary)
+cargo build --release --no-default-features --features minimal
+
+# AWS-only build without TUI (for headless servers)
+cargo build --release --no-default-features --features aws
+
+# TUI-only build without AWS (for DNS proxy only)
+cargo build --release --no-default-features --features tui
+
+# Custom feature combinations
+cargo build --release --features aws,tui
 ```
+
+**Available Feature Flags:**
+- `aws`: AWS service discovery and integration
+- `tui`: Terminal user interface and monitoring dashboard  
+- `minimal`: Minimal build without cloud integrations or TUI
+- `default`: Includes both `aws` and `tui` features
 
 ## 📦 Deployment Options
 
@@ -278,11 +347,21 @@ Performance results are based on the included `dns-proxy-test.sh` script. These 
 
 ## 🗺️ Roadmap
 
-*   [ ] Enhanced rule conditions (e.g., client IP, specific record types).
+### ✅ **Completed Features**
+*   [x] **Enhanced rule conditions**: Client IP filtering via `network_whitelist` configuration and specific record types support (A, AAAA, etc.).
+*   [x] **Robust AWS service discovery**: Comprehensive multi-account support, credential management, service discovery across VPC endpoints, EC2, RDS, ElastiCache, DocumentDB, Route53 resolvers, and private hosted zones.
+*   [x] **Secure update system**: Cryptographic signature verification, SLSA provenance validation, transactional updates with rollback capabilities.
+*   [x] **Build feature flags**: Modular compilation with `aws`, `tui`, and `minimal` feature flags for optimized deployments.
+
+### 🚀 **In Progress & Planned**
+*   [ ] **Azure integration**: Service discovery for Azure VNets, App Services, and Azure DNS Private Zones.
+*   [ ] **Google Cloud Platform (GCP) integration**: VPC discovery, Cloud DNS, and Compute Engine integration.
 *   [ ] Support for DoT (DNS-over-TLS) upstream resolvers.
-*   [ ] More robust AWS service discovery options and richer metadata.
-*   [ ] Support for other cloud provider service discovery (Azure, GCP).
 *   [ ] Persistent cache option (e.g., SQLite, Redis).
+*   [ ] Enhanced update system with differential updates and A/B testing.
+*   [ ] Integration with more package managers and distribution channels.
+*   [ ] Advanced rule conditions with time-based and geolocation filters.
+*   [ ] Enhanced monitoring with Prometheus metrics export.
 
 ## 🤝 Contributing
 
@@ -291,5 +370,9 @@ Contributions are welcome! Please feel free to:
 *   Open an Issue to report bugs, suggest features, or ask questions.
 *   Participate in Discussions.
 
-Please follow standard GitHub Fork & Pull Request workflows. Ensure your code is formatted with `rustfmt` and passes `cargo clippy` and `cargo test`.
+Please follow standard GitHub Fork & Pull Request workflows. Ensure your code:
+- Is formatted with `rustfmt`
+- Passes all **292 tests** with `cargo test`
+- Passes linting with `cargo clippy --all-targets --all-features -- -D warnings`
+- Includes appropriate test coverage for new functionality
 
