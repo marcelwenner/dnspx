@@ -240,47 +240,128 @@ impl VerifiedUpdateManager {
         Ok(release)
     }
 
-    fn determine_asset_name(&self) -> String {
+    fn determine_platform_suffix(&self) -> String {
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
 
-        let platform_name = match (os, arch) {
-            ("linux", "x86_64") => "linux-x64",
-            ("linux", "aarch64") => "linux-arm64",
-            ("windows", "x86_64") => "windows-x64",
-            ("windows", "aarch64") => "windows-arm64",
-            ("macos", "x86_64") => "macos-intel",
-            ("macos", "aarch64") => "macos-arm64",
+        // Check if we're running on musl (simplified detection)
+        let is_musl = cfg!(target_env = "musl");
+
+        let platform_name = match (os, arch, is_musl) {
+            ("linux", "x86_64", true) => "linux-musl-x64",
+            ("linux", "x86_64", false) => "linux-x64",
+            ("linux", "aarch64", _) => "linux-arm64", 
+            ("windows", "x86_64", _) => "windows-x64",
+            ("windows", "aarch64", _) => "windows-arm64",
+            ("macos", "x86_64", _) => "macos-intel",
+            ("macos", "aarch64", _) => "macos-arm64",
             _ => {
-                warn!("Unknown platform: {}-{}, defaulting to linux-x64", os, arch);
+                warn!("Unknown platform: {}-{} (musl: {}), defaulting to linux-x64", os, arch, is_musl);
                 "linux-x64"
             }
         };
 
         let extension = if os == "windows" { "zip" } else { "tar.gz" };
-        format!("dnspx-{}.{}", platform_name, extension)
+        
+        format!("{}.{}", platform_name, extension)
+    }
+
+    fn get_expected_target_names(&self) -> Vec<String> {
+        let os = std::env::consts::OS;
+        let arch = std::env::consts::ARCH;
+        let is_musl = cfg!(target_env = "musl");
+
+        let mut targets = Vec::new();
+        
+        // Add Rust target triple names (for fallback compatibility)
+        match (os, arch, is_musl) {
+            ("linux", "x86_64", true) => {
+                targets.push("x86_64-unknown-linux-musl".to_string());
+                targets.push("linux-musl-x64".to_string());
+            }
+            ("linux", "x86_64", false) => {
+                targets.push("x86_64-unknown-linux-gnu".to_string());
+                targets.push("linux-x64".to_string());
+            }
+            ("linux", "aarch64", _) => {
+                targets.push("aarch64-unknown-linux-gnu".to_string());
+                targets.push("linux-arm64".to_string());
+            }
+            ("windows", "x86_64", _) => {
+                targets.push("x86_64-pc-windows-msvc".to_string());
+                targets.push("windows-x64".to_string());
+            }
+            ("windows", "aarch64", _) => {
+                targets.push("aarch64-pc-windows-msvc".to_string());
+                targets.push("windows-arm64".to_string());
+            }
+            ("macos", "x86_64", _) => {
+                targets.push("x86_64-apple-darwin".to_string());
+                targets.push("macos-intel".to_string());
+            }
+            ("macos", "aarch64", _) => {
+                targets.push("aarch64-apple-darwin".to_string());
+                targets.push("macos-arm64".to_string());
+            }
+            _ => {
+                warn!("Unknown platform: {}-{} (musl: {}), defaulting to linux targets", os, arch, is_musl);
+                targets.push("x86_64-unknown-linux-gnu".to_string());
+                targets.push("linux-x64".to_string());
+            }
+        };
+        
+        targets
     }
 
     async fn find_matching_asset<'a>(
         &self,
         assets: &'a [GitHubAsset],
+        release_version: &str,
     ) -> Result<&'a GitHubAsset, UpdateError> {
-        let target_name = self.determine_asset_name();
-        debug!("Looking for asset matching: {}", target_name);
+        let platform_suffix = self.determine_platform_suffix();
+        let expected_target_names = self.get_expected_target_names();
+        
+        debug!("Looking for asset with platform suffix: {}", platform_suffix);
+        debug!("Expected target names: {:?}", expected_target_names);
 
+        // Try to find asset with version-prefixed names based on release workflow patterns
+        // Format: dnspx-v{VERSION}-{platform_name}.{extension}
+        // release_version comes without 'v' prefix, so we need to add it
+        let expected_name = format!("dnspx-v{}-{}", release_version, platform_suffix);
+        debug!("Looking for asset matching: {}", expected_name);
+
+        // First try exact match with version prefix
         for asset in assets {
-            if asset
-                .name
-                .contains(target_name.split('.').next().unwrap_or(&target_name))
-            {
-                debug!("Found matching asset: {}", asset.name);
+            if asset.name == expected_name {
+                debug!("Found exact matching asset: {}", asset.name);
+                return Ok(asset);
+            }
+        }
+
+        // Fallback: try matching by target name (from release workflow matrix.name)
+        for asset in assets {
+            for target_name in &expected_target_names {
+                if asset.name.contains(target_name) {
+                    debug!("Found asset matching target name '{}': {}", target_name, asset.name);
+                    return Ok(asset);
+                }
+            }
+        }
+
+        // Final fallback: try partial match with platform suffix
+        let platform_base = platform_suffix.split('.').next().unwrap_or(&platform_suffix);
+        for asset in assets {
+            if asset.name.contains(platform_base) {
+                debug!("Found partial matching asset: {}", asset.name);
                 return Ok(asset);
             }
         }
 
         Err(UpdateError::CheckFailed(format!(
-            "No compatible binary found for current platform. Looking for: {}",
-            target_name
+            "No compatible binary found for current platform. Looking for: {} (targets: {:?}) among assets: {:?}",
+            expected_name,
+            expected_target_names,
+            assets.iter().map(|a| &a.name).collect::<Vec<_>>()
         )))
     }
 
@@ -473,7 +554,7 @@ impl UpdateManagerPort for VerifiedUpdateManager {
             .release_analyzer
             .analyze_release_notes(&release.body, &latest_version.to_string())?;
 
-        let asset = self.find_matching_asset(&release.assets).await?;
+        let asset = self.find_matching_asset(&release.assets, &latest_version.to_string()).await?;
 
         let checksum_url = release
             .assets
