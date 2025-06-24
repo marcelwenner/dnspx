@@ -14,7 +14,7 @@ async fn create_test_security_validator() -> SecurityValidator {
             "https://github.com/actions/runner".to_string(),
             "https://github.com/actions".to_string(),
         ],
-        attestation_repo: "mwenner/dnspx".to_string(),
+        attestation_repo: "marcelwenner/dnspx".to_string(),
         require_slsa_level: 0,
         allowed_update_domains: vec!["github.com".to_string(), "api.github.com".to_string()],
         max_download_size_mb: 50,
@@ -37,7 +37,7 @@ async fn create_attestation_enabled_validator() -> SecurityValidator {
             "https://github.com/actions/runner".to_string(),
             "https://github.com/actions".to_string(),
         ],
-        attestation_repo: "mwenner/dnspx".to_string(),
+        attestation_repo: "marcelwenner/dnspx".to_string(),
         require_slsa_level: 1,
         allowed_update_domains: vec!["github.com".to_string(), "api.github.com".to_string()],
         max_download_size_mb: 50,
@@ -282,7 +282,7 @@ mod tests {
             "Should have default trusted builders"
         );
         assert_eq!(
-            config.attestation_repo, "mwenner/dnspx",
+            config.attestation_repo, "marcelwenner/dnspx",
             "Should have default attestation repo"
         );
         assert!(

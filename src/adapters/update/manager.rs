@@ -250,19 +250,22 @@ impl VerifiedUpdateManager {
         let platform_name = match (os, arch, is_musl) {
             ("linux", "x86_64", true) => "linux-musl-x64",
             ("linux", "x86_64", false) => "linux-x64",
-            ("linux", "aarch64", _) => "linux-arm64", 
+            ("linux", "aarch64", _) => "linux-arm64",
             ("windows", "x86_64", _) => "windows-x64",
             ("windows", "aarch64", _) => "windows-arm64",
             ("macos", "x86_64", _) => "macos-intel",
             ("macos", "aarch64", _) => "macos-arm64",
             _ => {
-                warn!("Unknown platform: {}-{} (musl: {}), defaulting to linux-x64", os, arch, is_musl);
+                warn!(
+                    "Unknown platform: {}-{} (musl: {}), defaulting to linux-x64",
+                    os, arch, is_musl
+                );
                 "linux-x64"
             }
         };
 
         let extension = if os == "windows" { "zip" } else { "tar.gz" };
-        
+
         format!("{}.{}", platform_name, extension)
     }
 
@@ -272,7 +275,7 @@ impl VerifiedUpdateManager {
         let is_musl = cfg!(target_env = "musl");
 
         let mut targets = Vec::new();
-        
+
         // Add Rust target triple names (for fallback compatibility)
         match (os, arch, is_musl) {
             ("linux", "x86_64", true) => {
@@ -304,12 +307,15 @@ impl VerifiedUpdateManager {
                 targets.push("macos-arm64".to_string());
             }
             _ => {
-                warn!("Unknown platform: {}-{} (musl: {}), defaulting to linux targets", os, arch, is_musl);
+                warn!(
+                    "Unknown platform: {}-{} (musl: {}), defaulting to linux targets",
+                    os, arch, is_musl
+                );
                 targets.push("x86_64-unknown-linux-gnu".to_string());
                 targets.push("linux-x64".to_string());
             }
         };
-        
+
         targets
     }
 
@@ -320,8 +326,11 @@ impl VerifiedUpdateManager {
     ) -> Result<&'a GitHubAsset, UpdateError> {
         let platform_suffix = self.determine_platform_suffix();
         let expected_target_names = self.get_expected_target_names();
-        
-        debug!("Looking for asset with platform suffix: {}", platform_suffix);
+
+        debug!(
+            "Looking for asset with platform suffix: {}",
+            platform_suffix
+        );
         debug!("Expected target names: {:?}", expected_target_names);
 
         // Try to find asset with version-prefixed names based on release workflow patterns
@@ -342,14 +351,20 @@ impl VerifiedUpdateManager {
         for asset in assets {
             for target_name in &expected_target_names {
                 if asset.name.contains(target_name) {
-                    debug!("Found asset matching target name '{}': {}", target_name, asset.name);
+                    debug!(
+                        "Found asset matching target name '{}': {}",
+                        target_name, asset.name
+                    );
                     return Ok(asset);
                 }
             }
         }
 
         // Final fallback: try partial match with platform suffix
-        let platform_base = platform_suffix.split('.').next().unwrap_or(&platform_suffix);
+        let platform_base = platform_suffix
+            .split('.')
+            .next()
+            .unwrap_or(&platform_suffix);
         for asset in assets {
             if asset.name.contains(platform_base) {
                 debug!("Found partial matching asset: {}", asset.name);
@@ -554,7 +569,9 @@ impl UpdateManagerPort for VerifiedUpdateManager {
             .release_analyzer
             .analyze_release_notes(&release.body, &latest_version.to_string())?;
 
-        let asset = self.find_matching_asset(&release.assets, &latest_version.to_string()).await?;
+        let asset = self
+            .find_matching_asset(&release.assets, &latest_version.to_string())
+            .await?;
 
         let checksum_url = release
             .assets

@@ -6,12 +6,12 @@ DNSPX is a configurable DNS proxy and resolver designed for local development an
 
 [![CI/CD Pipeline](https://github.com/marcelwenner/dnspx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marcelwenner/dnspx/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.9.1-blue)
-![Tests](https://img.shields.io/badge/tests-292%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-334%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 ## 🚀 Production Readiness
 
-DNSPX is **thoroughly tested** with **292 comprehensive tests** covering all major functionality including AWS integration, DNS processing, caching, and error handling scenarios.
+DNSPX is **thoroughly tested** with **334 comprehensive tests** covering all major functionality including AWS integration, DNS processing, caching, and error handling scenarios.
 
 ### ✅ Robust AWS Integration
 AWS service discovery is **extensively tested** with comprehensive integration tests covering:
@@ -256,12 +256,12 @@ DNSPX listens on the configured port (default 53) for UDP and TCP DNS queries. R
 
 ## 🛠️ Development
 
-### 🧪 Comprehensive Testing (292 Tests)
+### 🧪 Comprehensive Testing (334 Tests)
 
-DNSPX includes an extensive test suite with **292 automated tests** ensuring reliability and correctness:
+DNSPX includes an extensive test suite with **334 automated tests** ensuring reliability and correctness:
 
 ```bash
-# Run all tests (292 tests covering all functionality)
+# Run all tests (334 tests covering all functionality)
 cargo test
 
 # Run AWS integration tests specifically  
@@ -372,7 +372,7 @@ Contributions are welcome! Please feel free to:
 
 Please follow standard GitHub Fork & Pull Request workflows. Ensure your code:
 - Is formatted with `rustfmt`
-- Passes all **292 tests** with `cargo test`
+- Passes all **334 tests** with `cargo test`
 - Passes linting with `cargo clippy --all-targets --all-features -- -D warnings`
 - Includes appropriate test coverage for new functionality
 

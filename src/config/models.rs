@@ -570,7 +570,7 @@ pub(crate) struct UpdateConfig {
 }
 
 fn default_github_repo() -> String {
-    "mwenner/dnspx".to_string()
+    "marcelwenner/dnspx".to_string()
 }
 
 fn default_trusted_builders() -> Vec<String> {
