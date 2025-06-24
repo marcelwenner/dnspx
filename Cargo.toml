@@ -1,6 +1,6 @@
 [package]
 name = "dnspx"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -88,6 +88,15 @@ dirs = "6.0.0"
 futures = "0.3.31"
 pulldown-cmark = "0.13.0"
 base64 = "0.22"
+jsonwebtoken = "9.2"
+
+# Auto-update functionality
+self_update = { version = "0.41", features = ["archive-tar", "archive-zip", "rustls"], default-features = false }
+semver = { version = "1.0", features = ["serde"] }
+tar = "0.4"
+flate2 = "1.0"
+zip = "2.1"
+sha2 = "0.10"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]

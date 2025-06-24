@@ -1,0 +1,43 @@
+# Example dnspx configuration with auto-update enabled
+
+[server]
+listen_address = "0.0.0.0:53"
+protocols = ["Udp", "Tcp"]
+default_query_timeout = "500ms"
+
+[default_resolver]
+nameservers = ["1.1.1.1:53", "8.8.8.8:53"]
+strategy = "First"
+timeout = "500ms"
+
+[cache]
+enabled = true
+max_capacity = 10000
+min_ttl = "60s"
+max_ttl = "24h"
+
+[logging]
+level = "info"
+format = "Pretty"
+
+# Auto-Update Configuration
+[update]
+enabled = true
+github_repo = "mwenner/dnspx"
+check_interval = "4h"
+
+[update.security]
+verify_checksums = true
+verify_signatures = false  # Optional GPG verification
+require_attestations = false  # Optional GitHub build attestations
+
+[update.auto_update_policy]
+update_level = "PatchOnly"  # None, PatchOnly, MinorAndPatch, All
+allow_breaking_changes = false
+require_security_approval = false
+
+[update.rollback]
+enabled = true
+keep_backups = 3
+health_check_timeout = "30s"
+health_check_enabled = true

@@ -135,7 +135,7 @@ impl ConfigurationManager {
                                 "Reload request received by processor task for {:?}",
                                 config_file_path
                             );
-                            // Debounce with cancellation check
+
                             tokio::select! {
                                 _ = shutdown_token.cancelled() => {
                                     tracing::info!("Config reload processor shutdown during debounce for {:?}.", config_file_path);

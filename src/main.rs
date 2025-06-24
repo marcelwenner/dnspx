@@ -8,6 +8,9 @@ mod core;
 mod dns_protocol;
 mod ports;
 
+#[cfg(test)]
+mod app_lifecycle_tests;
+
 use crate::adapters::aws::credentials_provider::AwsSdkConfigProvider;
 use crate::adapters::aws::vpc_info_provider::AwsSdkVpcInfoProvider;
 use crate::adapters::cli::console_cli_adapter::ConsoleCliAdapter;
@@ -20,6 +23,7 @@ use crate::adapters::tui::{
     app::TuiApp, app::TuiUserInteractionAdapter as TuiInteraction, event::EventManager,
     logging::TuiLoggingLayer,
 };
+use crate::adapters::update::manager::VerifiedUpdateManager;
 use crate::app_lifecycle::AppLifecycleManager;
 use crate::aws_integration::scanner::AwsVpcScannerTask;
 use crate::config::models::{AppConfig, LogFormat, LoggingConfig};
@@ -403,6 +407,50 @@ async fn main() -> anyhow::Result<()> {
             scanner_task.run().await;
         });
         app_lifecycle_manager.add_task(scanner_handle).await;
+    }
+
+    let update_config = app_lifecycle_manager
+        .get_config()
+        .read()
+        .await
+        .update
+        .clone();
+    if let Some(update_config) = update_config {
+        if update_config.enabled {
+            user_interaction_port.display_message("Starting update manager.", MessageLevel::Info);
+
+            let http_client = reqwest::Client::new();
+            let current_binary_path =
+                std::env::current_exe().unwrap_or_else(|_| PathBuf::from("dnspx"));
+            let backup_dir = std::env::temp_dir().join("dnspx_backups");
+
+            let update_manager = Arc::new(VerifiedUpdateManager::new(
+                update_config,
+                http_client,
+                current_binary_path,
+                backup_dir,
+            ));
+
+            let update_manager_port: Arc<dyn crate::ports::UpdateManagerPort> =
+                update_manager.clone();
+            app_lifecycle_manager_impl
+                .set_update_manager(update_manager_port)
+                .await;
+
+            let update_manager_clone = Arc::clone(&update_manager);
+            let app_lifecycle_clone = Arc::clone(&app_lifecycle_manager);
+            let update_handle = tokio::spawn(async move {
+                update_manager_clone
+                    .run_background_checker(app_lifecycle_clone)
+                    .await;
+            });
+            app_lifecycle_manager.add_task(update_handle).await;
+        }
+    } else {
+        user_interaction_port.display_message(
+            "No update configuration found. Automatic updates disabled.",
+            MessageLevel::Info,
+        );
     }
 
     let app_lifecycle_manager_clone_udp = Arc::clone(&app_lifecycle_manager);

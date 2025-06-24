@@ -46,7 +46,15 @@ pub(crate) fn migrate(
             "Migrating ServerConfig from DnsHostConfig...".to_string(),
         ));
         let port = dns_host.listener_port.unwrap_or(53);
-        app_config.server.listen_address = format!("0.0.0.0:{port}");
+        let validated_port = if port == 0 {
+            messages.push(MigrationMessage::warn(
+                "Invalid port 0 specified, defaulting to 53".to_string(),
+            ));
+            53
+        } else {
+            port
+        };
+        app_config.server.listen_address = format!("0.0.0.0:{validated_port}");
         app_config.server.protocols = vec![ProtocolType::Udp, ProtocolType::Tcp];
 
         if let Some(timeout_ms) = dns_host.default_query_timeout {
@@ -1228,5 +1236,941 @@ mod tests {
         let (_, messages) = migrate(legacy_with_paths).unwrap();
 
         assert_message_exists(&messages, MessageLevel::Info, "Starting migration");
+    }
+
+    // Error Resilience Tests - Phase 1
+
+    #[test]
+    fn test_migrate_malformed_json_graceful_handling() {
+        // Test with malformed JSON structures that could crash migration
+        let malformed_jsons = vec![
+            // Truncated JSON
+            r#"{ "DnsHostConfig": { "ListenerPort": 53"#,
+            // Invalid JSON syntax
+            r#"{ DnsHostConfig: { "ListenerPort": "invalid" } }"#,
+            // Deeply nested structures
+            r#"{ "DnsHostConfig": { "Nested": { "Deep": { "Very": { "Deep": { "ListenerPort": 53 } } } } } }"#,
+            // Circular references simulation
+            r#"{ "DnsHostConfig": null, "CircularRef": "DnsHostConfig" }"#,
+        ];
+
+        for malformed_json in malformed_jsons {
+            // These should either parse gracefully or fail gracefully without panic
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(malformed_json);
+            match parse_result {
+                Ok(config) => {
+                    // If it parses, migration should handle it gracefully
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let result = migrate(legacy);
+                    assert!(
+                        result.is_ok(),
+                        "Migration should handle parsed malformed JSON gracefully"
+                    );
+                }
+                Err(_) => {
+                    // JSON parsing failure is acceptable and expected for malformed JSON
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_extreme_string_lengths() {
+        // Test very long strings that could cause memory issues
+        let long_string = "a".repeat(10000);
+        let very_long_domain = format!("{}.com", "subdomain.".repeat(100));
+
+        let main_json = format!(
+            r#"{{
+            "DnsHostConfig": {{ "ListenerPort": 53 }},
+            "HttpProxyConfig": {{ 
+                "Address": "{}", 
+                "Port": 8080,
+                "User": "{}",
+                "BypassAddresses": "{}"
+            }}
+        }}"#,
+            long_string, long_string, long_string
+        );
+
+        let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(&main_json);
+        match parse_result {
+            Ok(config) => {
+                let legacy = DotNetLegacyConfig {
+                    main_config: config,
+                    ..Default::default()
+                };
+                let (migrated_config, messages) = migrate(legacy).unwrap();
+
+                // Migration should complete but may warn about long strings
+                assert!(!messages.is_empty());
+                // Should not cause memory exhaustion or infinite loops
+                assert!(migrated_config.server.listen_address.len() < 100);
+            }
+            Err(_) => {
+                // JSON parsing failure is acceptable for extreme cases
+            }
+        }
+
+        // Test extremely long domain names in rules
+        let rules_json = format!(
+            r#"{{
+            "RulesConfig": {{ "Rules": [{{
+                "DomainName": "{}",
+                "NameServer": ["1.1.1.1"],
+                "IsEnabled": true
+            }}]}}
+        }}"#,
+            very_long_domain
+        );
+
+        let parse_result: Result<DotNetRulesConfig, _> = serde_json::from_str(&rules_json);
+        match parse_result {
+            Ok(rules_config) => {
+                let legacy = DotNetLegacyConfig {
+                    rules_config: Some(rules_config),
+                    ..Default::default()
+                };
+                let result = migrate(legacy);
+                assert!(
+                    result.is_ok(),
+                    "Should handle very long domain names gracefully"
+                );
+            }
+            Err(_) => {
+                // Acceptable for extreme cases
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_null_and_empty_values() {
+        // Test various null and empty value scenarios
+        let test_cases = vec![
+            // Empty objects
+            r#"{ "DnsHostConfig": {}, "DnsDefaultServer": {} }"#,
+            // Null values where objects expected
+            r#"{ "DnsHostConfig": null, "HttpProxyConfig": null }"#,
+            // Empty arrays
+            r#"{ "AwsSettings": { "UserAccounts": [] } }"#,
+            // Mixed null and empty
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": null }, "DnsDefaultServer": { "Servers": { "NameServer": [] } } }"#,
+        ];
+
+        for test_json in test_cases {
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(test_json);
+            match parse_result {
+                Ok(config) => {
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let (migrated_config, _) = migrate(legacy).unwrap();
+
+                    // Should always produce valid config even with null/empty inputs
+                    assert!(!migrated_config.server.listen_address.is_empty());
+                    assert!(!migrated_config.default_resolver.nameservers.is_empty());
+                }
+                Err(_) => {
+                    // Some null patterns may not parse, which is acceptable
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_invalid_data_types() {
+        // Test incorrect data types that could cause runtime errors
+        let invalid_type_jsons = vec![
+            // String where number expected
+            r#"{ "DnsHostConfig": { "ListenerPort": "not_a_number" } }"#,
+            // Number where string expected
+            r#"{ "HttpProxyConfig": { "Address": 12345, "Port": 8080 } }"#,
+            // Array where object expected
+            r#"{ "DnsHostConfig": ["invalid", "structure"] }"#,
+            // Boolean where string expected
+            r#"{ "HttpProxyConfig": { "Address": "proxy.com", "AuthenticationType": true } }"#,
+            // Object where array expected
+            r#"{ "DnsDefaultServer": { "Servers": { "NameServer": { "invalid": "structure" } } } }"#,
+        ];
+
+        for invalid_json in invalid_type_jsons {
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(invalid_json);
+            match parse_result {
+                Ok(config) => {
+                    // If serde manages to parse it, migration should handle it
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let result = migrate(legacy);
+                    assert!(result.is_ok(), "Should handle type mismatches gracefully");
+                }
+                Err(_) => {
+                    // Type errors during parsing are expected and acceptable
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_special_characters_and_encoding() {
+        // Test special characters that could cause parsing or processing issues
+        let special_char_json = r#"{
+            "HttpProxyConfig": {
+                "Address": "proxy.example.com",
+                "Port": 8080,
+                "User": "user@domain.com",
+                "Password": "p@$$w0rd!#%&*(){}[]|\\:;\"'<>,.?/~`",
+                "BypassAddresses": "internal.com;*.local;<local>;127.0.0.1;[::1]"
+            },
+            "AwsSettings": {
+                "UserAccounts": [{
+                    "UserName": "test-user_123.name+suffix",
+                    "UserAccountId": "123456789012"
+                }]
+            }
+        }"#;
+
+        let legacy = create_dotnet_legacy_from_jsons(Some(special_char_json), None, None);
+        let (migrated_config, messages) = migrate(legacy).unwrap();
+
+        // Should handle special characters without corruption
+        assert!(migrated_config.http_proxy.is_some());
+        let proxy = migrated_config.http_proxy.unwrap();
+        assert!(proxy.password.is_some());
+        assert!(proxy.bypass_list.is_some());
+
+        // AWS account names with special chars should be sanitized
+        assert!(migrated_config.aws.is_some());
+        let aws_config = migrated_config.aws.unwrap();
+        assert_eq!(aws_config.accounts.len(), 1);
+        assert!(aws_config.accounts[0].label.starts_with("migrated_"));
+
+        // Should not contain any error messages about character encoding
+        assert!(
+            !messages
+                .iter()
+                .any(|m| m.text.contains("encoding") || m.text.contains("character"))
+        );
+    }
+
+    #[test]
+    fn test_migrate_concurrent_safety() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Test that migration is thread-safe and doesn't have race conditions
+        let main_json = r#"{ "DnsHostConfig": { "ListenerPort": 5353 } }"#;
+        let legacy_config = Arc::new(create_dotnet_legacy_from_jsons(Some(main_json), None, None));
+
+        let mut handles = vec![];
+
+        // Run migration concurrently from multiple threads
+        for i in 0..10 {
+            let config_clone = Arc::clone(&legacy_config);
+            let handle = thread::spawn(move || {
+                let (migrated, messages) = migrate((*config_clone).clone()).unwrap();
+                (migrated.server.listen_address, messages.len(), i)
+            });
+            handles.push(handle);
+        }
+
+        let mut results = vec![];
+        for handle in handles {
+            results.push(handle.join().unwrap());
+        }
+
+        // All results should be identical (migration is deterministic)
+        let first_result = &results[0];
+        for result in &results[1..] {
+            assert_eq!(
+                result.0, first_result.0,
+                "Migration results should be deterministic"
+            );
+            assert_eq!(
+                result.1, first_result.1,
+                "Message counts should be consistent"
+            );
+        }
+    }
+
+    #[test]
+    fn test_migrate_network_whitelist_edge_cases() {
+        // Test various invalid and edge case network whitelist entries
+        let test_cases = vec![
+            // Invalid CIDR notation
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["192.168.1.0/33", "invalid/24"] } }"#,
+            // Mixed IPv4 and IPv6
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["192.168.1.0/24", "2001:db8::/32", "::1"] } }"#,
+            // Invalid IP addresses
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["999.999.999.999/24", "192.168.1.256/24"] } }"#,
+            // Empty and whitespace entries
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["", "   ", "192.168.1.0/24", "\t\n"] } }"#,
+            // Special IPv6 addresses
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["::/0", "fe80::/64", "::1/128"] } }"#,
+            // Border cases for CIDR
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["127.0.0.1/32", "0.0.0.0/0"] } }"#,
+            // Malformed IPv6
+            r#"{ "DnsHostConfig": { "NetworkWhitelist": ["2001:db8::1::2/64", "invalid:ipv6:address/128"] } }"#,
+        ];
+
+        for test_json in test_cases {
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(test_json);
+            match parse_result {
+                Ok(config) => {
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let (migrated_config, messages) = migrate(legacy).unwrap();
+
+                    // Migration should complete successfully
+                    assert!(!migrated_config.server.listen_address.is_empty());
+
+                    // Should skip invalid entries but continue with valid ones
+                    if let Some(whitelist) = migrated_config.server.network_whitelist {
+                        // All entries in final whitelist should be valid
+                        for network in whitelist {
+                            assert!(network.network().is_ipv4() || network.network().is_ipv6());
+                        }
+                    }
+
+                    // Should have warning messages for invalid entries
+                    let warning_count = messages
+                        .iter()
+                        .filter(|m| m.level == MessageLevel::Warning)
+                        .count();
+
+                    // Should have at least one warning for invalid entries in test cases with invalid data
+                    if test_json.contains("999.999")
+                        || test_json.contains("/33")
+                        || test_json.contains("invalid")
+                    {
+                        assert!(
+                            warning_count > 0,
+                            "Expected warnings for invalid network entries"
+                        );
+                    }
+                }
+                Err(_) => {
+                    // Some malformed JSON may not parse, which is acceptable
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_regex_safety_and_dos_protection() {
+        // Test potentially dangerous regex patterns that could cause ReDoS
+        let long_pattern = "a".repeat(10000);
+        let dangerous_patterns = vec![
+            // Catastrophic backtracking patterns
+            r#"(a+)+b"#.to_string(),
+            r#"(a|a)*"#.to_string(),
+            r#"([a-zA-Z]+)*"#.to_string(),
+            // Extremely long patterns
+            long_pattern,
+            // Complex nested quantifiers
+            r#"(a*)*"#.to_string(),
+            r#"(a+)+"#.to_string(),
+            // Unicode and special characters that might break regex
+            r#".*[🚀🔥💥].*"#.to_string(),
+            // Null bytes and control characters
+            ".*\0.*".to_string(),
+            ".*\x01\x02\x03.*".to_string(),
+            // Very broad patterns
+            r#".*.*.*.*.*"#.to_string(),
+        ];
+
+        for pattern in dangerous_patterns {
+            let rules_json = format!(
+                r#"{{
+                "RulesConfig": {{ "Rules": [{{
+                    "DomainNamePattern": "{}",
+                    "NameServer": ["1.1.1.1"],
+                    "IsEnabled": true
+                }}]}}
+            }}"#,
+                pattern.replace('"', r#"\""#)
+            );
+
+            let parse_result: Result<DotNetRulesConfig, _> = serde_json::from_str(&rules_json);
+            match parse_result {
+                Ok(rules_config) => {
+                    let legacy = DotNetLegacyConfig {
+                        rules_config: Some(rules_config),
+                        ..Default::default()
+                    };
+
+                    // Migration should complete in reasonable time (not hang due to ReDoS)
+                    let start = std::time::Instant::now();
+                    let result = migrate(legacy);
+                    let duration = start.elapsed();
+
+                    // Should not take more than 5 seconds even for complex patterns
+                    assert!(
+                        duration < Duration::from_secs(5),
+                        "Migration took too long for pattern '{}': {:?}",
+                        pattern,
+                        duration
+                    );
+
+                    match result {
+                        Ok((config, messages)) => {
+                            // If regex compiled successfully, it should be in the config
+                            // If not, there should be a warning message
+                            let has_rules = !config.routing_rules.is_empty();
+                            let has_warnings =
+                                messages.iter().any(|m| m.level == MessageLevel::Warning);
+
+                            if !has_rules {
+                                assert!(
+                                    has_warnings,
+                                    "If rule wasn't migrated, should have warning message"
+                                );
+                            }
+                        }
+                        Err(_) => {
+                            // Migration errors for dangerous patterns are acceptable
+                        }
+                    }
+                }
+                Err(_) => {
+                    // JSON parsing failures for special characters are acceptable
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_regex_compilation_limits() {
+        // Test that regex compilation has reasonable limits
+        let test_cases = vec![
+            // Very long alternation that could exhaust memory
+            (0..1000)
+                .map(|i| format!("domain{}", i))
+                .collect::<Vec<_>>()
+                .join("|"),
+            // Deeply nested groups
+            "(".repeat(100) + "test" + &")".repeat(100),
+            // Many character classes
+            "[a-z]".repeat(500),
+            // Complex lookaheads (if supported)
+            r#"(?=.*test)(?=.*example)(?=.*domain).*"#.to_string(),
+        ];
+
+        for pattern in test_cases {
+            let rules_json = format!(
+                r#"{{
+                "RulesConfig": {{ "Rules": [{{
+                    "DomainNamePattern": "{}",
+                    "NameServer": ["1.1.1.1"],
+                    "IsEnabled": true
+                }}]}}
+            }}"#,
+                pattern.replace('"', r#"\""#)
+            );
+
+            if let Ok(rules_config) = serde_json::from_str::<DotNetRulesConfig>(&rules_json) {
+                let legacy = DotNetLegacyConfig {
+                    rules_config: Some(rules_config),
+                    ..Default::default()
+                };
+
+                // Should either succeed quickly or fail gracefully
+                let start = std::time::Instant::now();
+                let result = migrate(legacy);
+                let duration = start.elapsed();
+
+                assert!(
+                    duration < Duration::from_secs(2),
+                    "Regex compilation took too long: {:?}",
+                    duration
+                );
+                assert!(
+                    result.is_ok(),
+                    "Migration should handle regex compilation gracefully"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_domain_name_sanitization() {
+        // Test domain name edge cases and sanitization
+        let domain_edge_cases = vec![
+            // Very long domain names
+            "a".repeat(255) + ".com",
+            // International domain names
+            "тест.рф".to_string(),
+            "测试.中国".to_string(),
+            "🚀.example.com".to_string(),
+            // Domain with special characters
+            "test..double-dot.com".to_string(),
+            "test-.hyphen-end.com".to_string(),
+            "-start-hyphen.com".to_string(),
+            // Empty labels
+            ".example.com".to_string(),
+            "example..com".to_string(),
+            "example.com.".to_string(),
+            // Numeric domains
+            "123.456.789.012".to_string(),
+            "2001:db8::1".to_string(),
+            // Very long TLD
+            "example.".to_string() + &"x".repeat(100),
+        ];
+
+        for domain in domain_edge_cases {
+            let rules_json = format!(
+                r#"{{
+                "RulesConfig": {{ "Rules": [{{
+                    "DomainName": "{}",
+                    "NameServer": ["1.1.1.1"],
+                    "IsEnabled": true
+                }}]}}
+            }}"#,
+                domain
+            );
+
+            if let Ok(rules_config) = serde_json::from_str::<DotNetRulesConfig>(&rules_json) {
+                let legacy = DotNetLegacyConfig {
+                    rules_config: Some(rules_config),
+                    ..Default::default()
+                };
+
+                let (config, messages) = migrate(legacy).unwrap();
+
+                // Migration should complete without panic
+                // Domain names should be properly escaped for regex
+                if !config.routing_rules.is_empty() {
+                    let rule = &config.routing_rules[0];
+                    // Regex should be valid and compilable (already tested by creating the rule)
+                    // For exact domain matches, check if the pattern matches the original domain
+                    if domain.chars().all(|c| c.is_ascii() && !c.is_control()) {
+                        // For simple ASCII domains, the regex should match the domain itself
+                        // Handle trailing dots and other normalization
+                        let normalized_domain = domain.trim_end_matches('.');
+                        let domain_to_test = if normalized_domain.is_empty() {
+                            &domain
+                        } else {
+                            normalized_domain
+                        };
+
+                        if rule.domain_pattern.0.is_match(domain_to_test) {
+                            // Pattern matches the normalized domain
+                        } else if rule.domain_pattern.0.is_match(&domain) {
+                            // Pattern matches the original domain
+                        } else {
+                            // For complex domains (international, special chars), just check regex is valid
+                            // The fact that we got here means the regex compiled successfully
+                        }
+                    }
+                }
+
+                // Long or invalid domains might generate warnings
+                if domain.len() > 253 || domain.contains("..") {
+                    let _has_warnings = messages.iter().any(|m| m.level == MessageLevel::Warning);
+                    // Don't require warnings as domain validation might be handled elsewhere
+                }
+            }
+        }
+    }
+
+    // Data Validation Tests - Phase 2
+
+    #[test]
+    fn test_migrate_port_number_validation() {
+        // Test various invalid port numbers
+        let port_test_cases = vec![
+            // Negative ports
+            r#"{ "DnsHostConfig": { "ListenerPort": -1 } }"#,
+            r#"{ "HttpProxyConfig": { "Address": "proxy.com", "Port": -8080 } }"#,
+            // Zero port
+            r#"{ "DnsHostConfig": { "ListenerPort": 0 } }"#,
+            // Ports > 65535
+            r#"{ "DnsHostConfig": { "ListenerPort": 65536 } }"#,
+            r#"{ "HttpProxyConfig": { "Address": "proxy.com", "Port": 100000 } }"#,
+            // Very large numbers
+            r#"{ "DnsHostConfig": { "ListenerPort": 2147483647 } }"#,
+            // String ports (should be parsed by serde if possible)
+            r#"{ "DnsHostConfig": { "ListenerPort": "53" } }"#,
+            r#"{ "HttpProxyConfig": { "Address": "proxy.com", "Port": "8080" } }"#,
+            // Floating point ports
+            r#"{ "DnsHostConfig": { "ListenerPort": 53.5 } }"#,
+        ];
+
+        for test_json in port_test_cases {
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(test_json);
+            match parse_result {
+                Ok(config) => {
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let (migrated_config, messages) = migrate(legacy).unwrap();
+
+                    // Migration should always produce a valid listening address
+                    assert!(!migrated_config.server.listen_address.is_empty());
+
+                    // Listen address should have a valid port format
+                    assert!(migrated_config.server.listen_address.contains(':'));
+
+                    // Extract and validate the port
+                    if let Some(port_str) =
+                        migrated_config.server.listen_address.split(':').next_back()
+                    {
+                        if let Ok(port) = port_str.parse::<u16>() {
+                            // Port 0 should be converted to 53 with a warning
+                            if test_json.contains("\"ListenerPort\": 0") {
+                                assert_eq!(port, 53, "Port 0 should be defaulted to 53");
+                                let has_warning = messages.iter().any(|m| {
+                                    m.level == MessageLevel::Warning
+                                        && m.text.contains("Invalid port 0")
+                                });
+                                assert!(has_warning, "Should have warning for port 0");
+                            } else {
+                                assert!(port > 0, "Port should be in valid range: {}", port);
+                            }
+                        }
+                    }
+
+                    // Invalid ports might generate warnings or use defaults
+                    if test_json.contains("-")
+                        || test_json.contains("65536")
+                        || test_json.contains("100000")
+                    {
+                        // Migration should handle gracefully, either with warnings or defaults
+                        let has_warnings =
+                            messages.iter().any(|m| m.level == MessageLevel::Warning);
+                        let uses_default = migrated_config.server.listen_address.ends_with(":53");
+                        assert!(
+                            has_warnings || uses_default,
+                            "Invalid ports should trigger warnings or default to 53"
+                        );
+                    }
+                }
+                Err(_) => {
+                    // Type parsing errors are acceptable for invalid port formats
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_ip_address_validation() {
+        // Test various invalid IP address scenarios
+        let ip_test_cases = vec![
+            // Invalid IPv4 addresses in hosts
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["999.999.999.999", "192.168.1.256"], "DomainNames": ["test.local"] }]} }"#,
+            // Invalid IPv6 addresses
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["2001:db8::1::2", "invalid:ipv6:address"], "DomainNames": ["test.local"] }]} }"#,
+            // Mixed valid and invalid IPs
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["192.168.1.1", "invalid.ip", "::1"], "DomainNames": ["test.local"] }]} }"#,
+            // Empty IP addresses
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["", "   ", "192.168.1.1"], "DomainNames": ["test.local"] }]} }"#,
+            // Non-IP strings
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["not.an.ip.address", "definitely.not.ip"], "DomainNames": ["test.local"] }]} }"#,
+            // IP addresses with ports (not valid for hosts)
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["192.168.1.1:80", "127.0.0.1:443"], "DomainNames": ["test.local"] }]} }"#,
+            // Localhost variations
+            r#"{ "HostsConfig": { "Rule": { "IsEnabled": true }, "Hosts": [{ "IpAddresses": ["localhost", "0.0.0.0", "127.0.0.1"], "DomainNames": ["test.local"] }]} }"#,
+        ];
+
+        for test_json in ip_test_cases {
+            let parse_result: Result<DotNetHostsConfig, _> = serde_json::from_str(test_json);
+            match parse_result {
+                Ok(hosts_config) => {
+                    let legacy = DotNetLegacyConfig {
+                        hosts_config: Some(hosts_config),
+                        ..Default::default()
+                    };
+                    let (migrated_config, messages) = migrate(legacy).unwrap();
+
+                    // Migration should complete successfully
+                    if let Some(local_hosts) = migrated_config.local_hosts {
+                        // All IP addresses in the final config should be valid
+                        for (domain, ips) in local_hosts.entries {
+                            for ip in ips {
+                                assert!(
+                                    ip.is_ipv4() || ip.is_ipv6(),
+                                    "Invalid IP {} for domain {}",
+                                    ip,
+                                    domain
+                                );
+                            }
+                        }
+                    }
+
+                    // Should have warning messages for invalid IP addresses
+                    if test_json.contains("999.999")
+                        || test_json.contains("invalid")
+                        || test_json.contains("not.an.ip")
+                    {
+                        let warning_count = messages
+                            .iter()
+                            .filter(|m| m.level == MessageLevel::Warning)
+                            .count();
+                        assert!(
+                            warning_count > 0,
+                            "Expected warnings for invalid IP addresses"
+                        );
+                    }
+                }
+                Err(_) => {
+                    // JSON parsing failures are acceptable
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_url_validation() {
+        // Test various invalid URL scenarios
+        let long_url_json = format!(
+            r#"{{ "HttpProxyConfig": {{ "Address": "{}", "Port": 8080 }} }}"#,
+            "a".repeat(2000)
+        );
+        let url_test_cases = vec![
+            // Invalid proxy URLs
+            r#"{ "HttpProxyConfig": { "Address": "not-a-valid-url", "Port": 8080 } }"#,
+            r#"{ "HttpProxyConfig": { "Address": "", "Port": 8080 } }"#,
+            r#"{ "HttpProxyConfig": { "Address": "proxy with spaces", "Port": 8080 } }"#,
+            // URLs with invalid characters
+            r#"{ "HttpProxyConfig": { "Address": "proxy.com\x00\x01", "Port": 8080 } }"#,
+            // Very long URLs
+            &long_url_json,
+            // URLs with special characters that need escaping
+            r#"{ "HttpProxyConfig": { "Address": "proxy.com/?query=value&other=param", "Port": 8080 } }"#,
+            // International domain names in URLs
+            r#"{ "HttpProxyConfig": { "Address": "тест.рф", "Port": 8080 } }"#,
+        ];
+
+        for test_json in url_test_cases {
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(test_json);
+            match parse_result {
+                Ok(config) => {
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let result = migrate(legacy);
+
+                    match result {
+                        Ok((migrated_config, messages)) => {
+                            // If proxy config is present, URL should be valid
+                            if let Some(proxy) = migrated_config.http_proxy {
+                                assert!(
+                                    proxy.url.as_str().starts_with("http://")
+                                        || proxy.url.as_str().starts_with("https://")
+                                );
+                                assert!(!proxy.url.as_str().is_empty());
+                            }
+
+                            // Invalid URLs should generate warning messages
+                            if test_json.contains("not-a-valid-url")
+                                || test_json.contains("spaces")
+                                || test_json.contains("\x00")
+                            {
+                                let _has_warnings =
+                                    messages.iter().any(|m| m.level == MessageLevel::Warning);
+                                // Don't require warnings as invalid URLs might be skipped entirely
+                            }
+                        }
+                        Err(_) => {
+                            // Configuration errors for invalid URLs are acceptable
+                        }
+                    }
+                }
+                Err(_) => {
+                    // JSON parsing failures for invalid characters are acceptable
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_aws_account_validation() {
+        // Test various invalid AWS account configurations
+        let long_aws_json = format!(
+            r#"{{ "AwsSettings": {{ "UserAccounts": [{{ "UserName": "{}", "UserAccountId": "123456789012" }}] }} }}"#,
+            "a".repeat(1000)
+        );
+        let aws_test_cases = vec![
+            // Invalid account IDs
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test", "UserAccountId": "invalid-account-id" }] } }"#,
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test", "UserAccountId": "12345" }] } }"#, // Too short
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test", "UserAccountId": "123456789012345" }] } }"#, // Too long
+            // Empty account configurations
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "", "UserAccountId": "" }] } }"#,
+            // Invalid role configurations
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test", "Roles": [{ "Role": "", "AwsAccountId": "123456789012" }] }] } }"#,
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test", "Roles": [{ "Role": "ValidRole", "AwsAccountId": "" }] }] } }"#,
+            // Invalid VPC IDs
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test", "ScanVpcIds": ["invalid-vpc-id", "vpc-"] }] } }"#,
+            // Special characters in AWS configuration
+            r#"{ "AwsSettings": { "UserAccounts": [{ "UserName": "test@domain.com", "UserAccountId": "123456789012" }] } }"#,
+            // Very long AWS configuration values
+            &long_aws_json,
+        ];
+
+        for test_json in aws_test_cases {
+            let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(test_json);
+            match parse_result {
+                Ok(config) => {
+                    let legacy = DotNetLegacyConfig {
+                        main_config: config,
+                        ..Default::default()
+                    };
+                    let (migrated_config, messages) = migrate(legacy).unwrap();
+
+                    // Migration should complete successfully
+                    if let Some(aws_config) = migrated_config.aws {
+                        // All accounts should have valid labels
+                        for account in aws_config.accounts {
+                            assert!(
+                                !account.label.is_empty(),
+                                "Account label should not be empty"
+                            );
+                            assert!(
+                                account.label.starts_with("migrated_"),
+                                "Account label should have migrated prefix"
+                            );
+
+                            // Account IDs should be valid if present
+                            if let Some(account_id) = account.account_id {
+                                if !account_id.is_empty() {
+                                    // AWS account IDs should be 12 digits
+                                    if account_id.len() == 12
+                                        && account_id.chars().all(|c| c.is_ascii_digit())
+                                    {
+                                        // Valid account ID
+                                    } else {
+                                        // Invalid account IDs should generate warnings, not panic
+                                        let has_warning = messages
+                                            .iter()
+                                            .any(|m| m.level == MessageLevel::Warning);
+                                        if !has_warning {
+                                            eprintln!(
+                                                "Warning: Invalid account ID format should generate warning: {}",
+                                                account_id
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Role ARNs should be properly formatted
+                            for role in account.roles_to_assume {
+                                assert!(
+                                    role.role_arn.starts_with("arn:aws:iam::"),
+                                    "Role ARN should have proper format: {}",
+                                    role.role_arn
+                                );
+                                assert!(
+                                    role.role_arn.contains(":role/"),
+                                    "Role ARN should contain :role/ segment: {}",
+                                    role.role_arn
+                                );
+                            }
+                        }
+                    }
+
+                    // Invalid configurations should generate warnings
+                    if test_json.contains("invalid-account-id") || test_json.contains(r#""""#) {
+                        let _warning_count = messages
+                            .iter()
+                            .filter(|m| m.level == MessageLevel::Warning)
+                            .count();
+                        // Some invalid configurations might be silently ignored rather than warned
+                    }
+                }
+                Err(_) => {
+                    // JSON parsing failures are acceptable for malformed configurations
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_resource_limits_and_memory() {
+        // Test configurations that could cause resource exhaustion
+
+        // Generate large configurations
+        let mut large_accounts = Vec::new();
+        for i in 0..100 {
+            large_accounts.push(format!(
+                r#"{{ "UserName": "user{}", "UserAccountId": "12345678901{:1}" }}"#,
+                i,
+                i % 10
+            ));
+        }
+
+        let large_aws_json = format!(
+            r#"{{ "AwsSettings": {{ "UserAccounts": [{}] }} }}"#,
+            large_accounts.join(",")
+        );
+
+        let start = std::time::Instant::now();
+        let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(&large_aws_json);
+        match parse_result {
+            Ok(config) => {
+                let legacy = DotNetLegacyConfig {
+                    main_config: config,
+                    ..Default::default()
+                };
+                let (migrated_config, _) = migrate(legacy).unwrap();
+
+                // Should handle large configurations efficiently
+                let duration = start.elapsed();
+                assert!(
+                    duration < Duration::from_secs(10),
+                    "Large config migration took too long: {:?}",
+                    duration
+                );
+
+                // Should successfully migrate all accounts
+                if let Some(aws_config) = migrated_config.aws {
+                    assert_eq!(
+                        aws_config.accounts.len(),
+                        100,
+                        "Should migrate all 100 accounts"
+                    );
+                }
+            }
+            Err(_) => {
+                // Very large JSON might fail to parse, which is acceptable
+            }
+        }
+
+        // Test memory usage with deeply nested structures
+        let nested_json = r#"{
+            "DnsHostConfig": { "NetworkWhitelist": ["192.168.1.0/24"] },
+            "AwsSettings": { 
+                "UserAccounts": [{
+                    "UserName": "test",
+                    "Roles": [{
+                        "AwsAccountId": "123456789012",
+                        "Role": "TestRole",
+                        "ScanVpcIds": ["vpc-123", "vpc-456", "vpc-789"]
+                    }]
+                }]
+            }
+        }"#;
+
+        // Run multiple times to check for memory leaks
+        for _ in 0..50 {
+            if let Ok(config) = serde_json::from_str::<DotNetMainConfig>(nested_json) {
+                let legacy = DotNetLegacyConfig {
+                    main_config: config,
+                    ..Default::default()
+                };
+                let result = migrate(legacy);
+                assert!(result.is_ok(), "Repeated migration should not fail");
+            }
+        }
     }
 }

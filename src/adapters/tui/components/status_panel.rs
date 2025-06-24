@@ -212,6 +212,78 @@ fn draw_dashboard_view(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
             )
         };
         lines.push(Line::from(vec![Span::raw("  State: "), aws_summary_span]));
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Auto-Update:",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+
+        if let Some(update_status) = &status.update_status {
+            let update_summary_span = if update_status.installing_update {
+                Span::styled(
+                    "INSTALLING",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else if update_status.checking_for_updates {
+                Span::styled(
+                    "CHECKING",
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else if update_status.update_available {
+                Span::styled(
+                    "UPDATE AVAILABLE",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else if update_status.last_error.is_some() {
+                Span::styled(
+                    "ERROR",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Span::styled("UP TO DATE", Style::default().fg(Color::Green))
+            };
+            lines.push(Line::from(vec![
+                Span::raw("  Status: "),
+                update_summary_span,
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Version: "),
+                Span::styled(
+                    format!("v{}", update_status.current_version),
+                    Style::default().fg(Color::LightBlue),
+                ),
+            ]));
+
+            if let Some(latest) = &update_status.latest_version {
+                lines.push(Line::from(vec![
+                    Span::raw("  Latest: "),
+                    Span::styled(
+                        format!("v{}", latest),
+                        Style::default().fg(Color::LightGreen),
+                    ),
+                ]));
+            }
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("  Status: "),
+                Span::styled(
+                    "DISABLED",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
     } else {
         lines.push(Line::from("Loading status..."));
     }
