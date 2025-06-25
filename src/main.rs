@@ -64,49 +64,79 @@ struct CliArgs {
     cli_only: bool,
 }
 
-/// Determines the best base path for configuration files
-/// First tries current directory, then executable directory as fallback
-/// This fixes Windows issues where PowerShell working directory differs from executable location
+/// Determines the best base path for configuration files based on platform and installation context
+///
+/// Windows: Always next to the .exe file (simple and consistent)
+/// Linux/macOS: Context-dependent:
+///   - User installation (binary in home directory): next to binary
+///   - System installation (binary in /opt, /usr/bin, etc.): ~/.config/dnspx/
 fn determine_config_base_path() -> PathBuf {
     use tracing::debug;
 
-    // First try current working directory (existing behavior)
-    let current_dir = std::env::current_dir().unwrap_or_else(|e| {
-        eprintln!(
-            "[WARN] Failed to get current directory: {}. Using '.' as fallback.",
-            e
-        );
-        PathBuf::from(".")
-    });
-
-    // Check if config file exists in current directory
-    let toml_in_current = current_dir.join(config::DEFAULT_CONFIG_FILE_NAME_V2);
-    let json_in_current = current_dir.join("config.json");
-
-    if toml_in_current.exists() || json_in_current.exists() {
-        debug!("Found config file in current directory: {:?}", current_dir);
-        return current_dir;
-    }
-
-    // Fallback: try executable directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let toml_in_exe = exe_dir.join(config::DEFAULT_CONFIG_FILE_NAME_V2);
-            let json_in_exe = exe_dir.join("config.json");
-
-            if toml_in_exe.exists() || json_in_exe.exists() {
-                debug!("Found config file in executable directory: {:?}", exe_dir);
+    #[cfg(windows)]
+    {
+        // Windows: Always next to the .exe file
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                debug!("Windows: Using executable directory: {:?}", exe_dir);
                 return exe_dir.to_path_buf();
             }
         }
+        // Fallback to current directory if executable path cannot be determined
+        let current_dir = std::env::current_dir().unwrap_or_else(|e| {
+            eprintln!(
+                "[WARN] Failed to get current directory: {}. Using '.' as fallback.",
+                e
+            );
+            PathBuf::from(".")
+        });
+        debug!(
+            "Windows fallback: Using current directory: {:?}",
+            current_dir
+        );
+        current_dir
     }
 
-    // Default to current directory if nothing found
-    debug!(
-        "No config files found, using current directory: {:?}",
+    #[cfg(not(windows))]
+    {
+        // Linux/macOS: Context-dependent logic
+        if let Ok(binary_path) = std::env::current_exe() {
+            if let Some(binary_dir) = binary_path.parent() {
+                // Check if binary is in user context (home directory tree)
+                if let Some(home_dir) = dirs::home_dir() {
+                    if binary_dir.starts_with(&home_dir) {
+                        // User installation: next to binary
+                        debug!(
+                            "Unix: User installation, using binary directory: {:?}",
+                            binary_dir
+                        );
+                        return binary_dir.to_path_buf();
+                    }
+                }
+
+                // System installation: use user config directory
+                if let Some(config_dir) = dirs::config_dir() {
+                    let dnspx_config_dir = config_dir.join("dnspx");
+                    debug!(
+                        "Unix: System installation, using user config directory: {:?}",
+                        dnspx_config_dir
+                    );
+                    return dnspx_config_dir;
+                }
+            }
+        }
+
+        // Final fallback to current directory
+        let current_dir = std::env::current_dir().unwrap_or_else(|e| {
+            eprintln!(
+                "[WARN] Failed to get current directory: {}. Using '.' as fallback.",
+                e
+            );
+            PathBuf::from(".")
+        });
+        debug!("Unix fallback: Using current directory: {:?}", current_dir);
         current_dir
-    );
-    current_dir
+    }
 }
 
 fn determine_initial_log_settings(config_path: &PathBuf) -> (LoggingConfig, bool) {

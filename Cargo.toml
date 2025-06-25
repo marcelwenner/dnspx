@@ -1,6 +1,6 @@
 [package]
 name = "dnspx"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -62,6 +62,7 @@ ipnetwork = { version = "0.21", features = ["serde"] }
 # AWS Integration
 aws-config = { version = "1.5", features = ["rustls"], default-features = false }
 aws-sdk-sts = { version = "1.73.0", default-features = false }
+aws-smithy-async = { version = "1.2", features = ["rt-tokio"] }
 aws-sdk-ec2 = { version = "1.137.0", default-features = false }
 aws-credential-types = "1.2"
 aws-sdk-apigateway = { version = "1.75.0", default-features = false }

@@ -1,5 +1,35 @@
 # DNSPX Release Notes
 
+## Version 0.9.3 - Platform-Aware Config Directory Resolution
+
+### Bug Fixes
+- **Fixed Windows PowerShell Config Migration Issue:**
+  - Windows: Always look for config files next to dnspx.exe regardless of PowerShell working directory
+  - Resolves migration issues when running `./dnspx.exe` from different directories
+  - No more "config.json not found" errors when files are placed correctly next to the executable
+
+- **Enhanced Cross-Platform Config Directory Logic:**
+  - Linux/macOS User installation (binary in home directory): look next to binary
+  - Linux/macOS System installation (binary in /opt, /usr/bin, etc.): use ~/.config/dnspx/
+  - Provides consistent behavior for different installation types
+
+### Technical Improvements
+- Added platform-specific configuration path resolution using `#[cfg(windows)]` and `#[cfg(not(windows))]`
+- Improved debug logging to show exactly where config files are being searched
+- Enhanced fallback logic for edge cases where executable path cannot be determined
+
+---
+
+## Version 0.9.2 - Windows Build Attestation Fix
+
+### Bug Fixes
+- **Fixed Release Workflow Windows Attestation:**
+  - Corrected Windows build attestation generation to use matrix.archive variable
+  - Removes duplicate Windows attestation step
+  - Ensures proper attestation for both .tar.gz and .zip files
+
+---
+
 ## Version 0.9.1 - CLI Help System & Update Manager Improvements
 
 ### New Features

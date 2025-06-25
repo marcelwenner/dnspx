@@ -115,7 +115,8 @@ impl AwsSdkConfigProvider {
         let mut config_builder = aws_sdk_sts::Config::builder()
             .credentials_provider(provider)
             .region(StsRegion::new(default_region))
-            .behavior_version(BehaviorVersion::latest());
+            .behavior_version(BehaviorVersion::latest())
+            .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new());
 
         #[cfg(test)]
         {
@@ -177,6 +178,7 @@ impl AwsSdkConfigProvider {
 
         let sdk_config = aws_config::defaults(BehaviorVersion::latest())
             .profile_name(profile_name)
+            .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new())
             .load()
             .await;
 
@@ -258,6 +260,7 @@ impl AwsSdkConfigProvider {
     ) -> Result<CoreAwsCredentials, AwsAuthError> {
         let sdk_config = aws_config::defaults(BehaviorVersion::latest())
             .profile_name(profile_name)
+            .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new())
             .load()
             .await;
 
@@ -297,6 +300,7 @@ impl AwsSdkConfigProvider {
     ) -> Result<CoreAwsCredentials, AwsAuthError> {
         let sdk_config = aws_config::defaults(BehaviorVersion::latest())
             .profile_name(profile_name)
+            .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new())
             .load()
             .await;
 
