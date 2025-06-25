@@ -1,6 +1,6 @@
 [package]
 name = "dnspx"
-version = "0.9.1"
+version = "0.9.3-dev"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -28,59 +28,59 @@ debug = false
 
 [dependencies]
 # Async Runtime
-tokio = { version = "1.40", features = ["rt-multi-thread", "net", "time", "fs", "signal", "macros", "sync", "io-util", "io-std"] }
+tokio = { version = "0.9.3-dev"] }
 tokio-util = "0.7"
 
 # Configuration & Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "0.9.3-dev"] }
 serde_json = "1.0"
 regex = "1.10"
 
 # DNS Protocol
-hickory-proto = { version = "0.25.2", features = ["serde"], default-features = false }
+hickory-proto = { version = "0.9.3-dev"], default-features = false }
 
 # Logging & Tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json", "ansi"], default-features = false }
+tracing-subscriber = { version = "0.9.3-dev"], default-features = false }
 # Added: "ansi" feature für pretty() method
 
 # CLI & Error Handling
-clap = { version = "4.5", features = ["derive", "std"], default-features = false }
+clap = { version = "0.9.3-dev"], default-features = false }
 thiserror = "2.0"
 inquire = "0.7"
 atty = "0.2"
 
 # Caching
-moka = { version = "0.12", features = ["future"], default-features = false }
+moka = { version = "0.9.3-dev"], default-features = false }
 
 # File Watching & Networking
 notify = "8.0"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-url = { version = "2.5", features = ["serde"] }
-ipnetwork = { version = "0.21", features = ["serde"] }
+reqwest = { version = "0.9.3-dev"], default-features = false }
+url = { version = "0.9.3-dev"] }
+ipnetwork = { version = "0.9.3-dev"] }
 
 # AWS Integration
-aws-config = { version = "1.5", features = ["rustls"], default-features = false }
-aws-sdk-sts = { version = "1.73.0", default-features = false }
-aws-sdk-ec2 = { version = "1.137.0", default-features = false }
+aws-config = { version = "0.9.3-dev"], default-features = false }
+aws-sdk-sts = { version = "0.9.3-dev", default-features = false }
+aws-sdk-ec2 = { version = "0.9.3-dev", default-features = false }
 aws-credential-types = "1.2"
-aws-sdk-apigateway = { version = "1.75.0", default-features = false }
-aws-sdk-rds = { version = "1.91.0", default-features = false }
-aws-sdk-elasticache = { version = "1.78.0", default-features = false }
-aws-sdk-docdb = { version = "1.76.0", default-features = false }
-aws-sdk-route53 = { version = "1.80.0", default-features = false }
-aws-sdk-route53resolver = { version = "1.77.0", default-features = false }
+aws-sdk-apigateway = { version = "0.9.3-dev", default-features = false }
+aws-sdk-rds = { version = "0.9.3-dev", default-features = false }
+aws-sdk-elasticache = { version = "0.9.3-dev", default-features = false }
+aws-sdk-docdb = { version = "0.9.3-dev", default-features = false }
+aws-sdk-route53 = { version = "0.9.3-dev", default-features = false }
+aws-sdk-route53resolver = { version = "0.9.3-dev", default-features = false }
 
 # Terminal & UI
 supports-color = "3.0"
 colored = "3.0"
-ratatui = { version = "0.29.0", features = ["crossterm"], default-features = false }
+ratatui = { version = "0.9.3-dev"], default-features = false }
 crossterm = "0.29.0"
 
 # Other dependencies
 humantime-serde = "1.1.1"
 async-trait = "0.1.88"
-chrono = { version = "0.4.41", features = ["serde"] }
+chrono = { version = "0.9.3-dev"] }
 toml = "0.8.22"
 rand = "0.9.1"
 anyhow = "1.0.98"
@@ -91,8 +91,8 @@ base64 = "0.22"
 jsonwebtoken = "9.2"
 
 # Auto-update functionality
-self_update = { version = "0.41", features = ["archive-tar", "archive-zip", "rustls"], default-features = false }
-semver = { version = "1.0", features = ["serde"] }
+self_update = { version = "0.9.3-dev"], default-features = false }
+semver = { version = "0.9.3-dev"] }
 tar = "0.4"
 flate2 = "1.0"
 zip = "2.1"
@@ -106,7 +106,7 @@ picky-asn1 = "0.10"
 [dev-dependencies]
 tokio-test = "0.4"
 assert_matches = "1.5"
-async-std = { version = "1.13.1", features = ["attributes"] }
+async-std = { version = "0.9.3-dev"] }
 httpmock = "0.7.0"
 urlencoding = "2.1.3"
 tempfile = "3.20.0"
