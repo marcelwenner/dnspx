@@ -284,16 +284,7 @@ jobs:
     - name: Generate build attestation
       uses: actions/attest-build-provenance@v2
       with:
-        subject-path: 'dist/dnspx-*.tar.gz'
-        subject-name: 'dnspx-${{ needs.validate.outputs.version }}-${{ matrix.name }}'
-        push-to-registry: false
-
-    # Generate attestations for Windows ZIP files
-    - name: Generate Windows attestation
-      if: matrix.os == 'windows-latest'
-      uses: actions/attest-build-provenance@v2
-      with:
-        subject-path: 'dist/dnspx-*.zip'
+        subject-path: 'dist/dnspx-*.${{ matrix.archive }}'
         subject-name: 'dnspx-${{ needs.validate.outputs.version }}-${{ matrix.name }}'
         push-to-registry: false
 
