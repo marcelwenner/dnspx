@@ -64,6 +64,51 @@ struct CliArgs {
     cli_only: bool,
 }
 
+/// Determines the best base path for configuration files
+/// First tries current directory, then executable directory as fallback
+/// This fixes Windows issues where PowerShell working directory differs from executable location
+fn determine_config_base_path() -> PathBuf {
+    use tracing::debug;
+
+    // First try current working directory (existing behavior)
+    let current_dir = std::env::current_dir().unwrap_or_else(|e| {
+        eprintln!(
+            "[WARN] Failed to get current directory: {}. Using '.' as fallback.",
+            e
+        );
+        PathBuf::from(".")
+    });
+
+    // Check if config file exists in current directory
+    let toml_in_current = current_dir.join(config::DEFAULT_CONFIG_FILE_NAME_V2);
+    let json_in_current = current_dir.join("config.json");
+
+    if toml_in_current.exists() || json_in_current.exists() {
+        debug!("Found config file in current directory: {:?}", current_dir);
+        return current_dir;
+    }
+
+    // Fallback: try executable directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let toml_in_exe = exe_dir.join(config::DEFAULT_CONFIG_FILE_NAME_V2);
+            let json_in_exe = exe_dir.join("config.json");
+
+            if toml_in_exe.exists() || json_in_exe.exists() {
+                debug!("Found config file in executable directory: {:?}", exe_dir);
+                return exe_dir.to_path_buf();
+            }
+        }
+    }
+
+    // Default to current directory if nothing found
+    debug!(
+        "No config files found, using current directory: {:?}",
+        current_dir
+    );
+    current_dir
+}
+
 fn determine_initial_log_settings(config_path: &PathBuf) -> (LoggingConfig, bool) {
     let default_logging = LoggingConfig::default();
     let default_colors = true;
@@ -147,7 +192,8 @@ async fn main() -> anyhow::Result<()> {
     let is_tui_mode = !cli_args.cli_only;
 
     let console_supports_color = supports_color::on(supports_color::Stream::Stdout).is_some();
-    let config_base_path = std::env::current_dir().expect("Failed to get current directory");
+
+    let config_base_path = determine_config_base_path();
     let preliminary_config_path = config_base_path.join(config::DEFAULT_CONFIG_FILE_NAME_V2);
 
     let (initial_log_config_for_startup, initial_cli_color_pref) =
