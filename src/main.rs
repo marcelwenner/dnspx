@@ -64,6 +64,81 @@ struct CliArgs {
     cli_only: bool,
 }
 
+/// Determines the best base path for configuration files based on platform and installation context
+///
+/// Windows: Always next to the .exe file (simple and consistent)
+/// Linux/macOS: Context-dependent:
+///   - User installation (binary in home directory): next to binary
+///   - System installation (binary in /opt, /usr/bin, etc.): ~/.config/dnspx/
+fn determine_config_base_path() -> PathBuf {
+    use tracing::debug;
+
+    #[cfg(windows)]
+    {
+        // Windows: Always next to the .exe file
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                debug!("Windows: Using executable directory: {:?}", exe_dir);
+                return exe_dir.to_path_buf();
+            }
+        }
+        // Fallback to current directory if executable path cannot be determined
+        let current_dir = std::env::current_dir().unwrap_or_else(|e| {
+            eprintln!(
+                "[WARN] Failed to get current directory: {}. Using '.' as fallback.",
+                e
+            );
+            PathBuf::from(".")
+        });
+        debug!(
+            "Windows fallback: Using current directory: {:?}",
+            current_dir
+        );
+        current_dir
+    }
+
+    #[cfg(not(windows))]
+    {
+        // Linux/macOS: Context-dependent logic
+        if let Ok(binary_path) = std::env::current_exe() {
+            if let Some(binary_dir) = binary_path.parent() {
+                // Check if binary is in user context (home directory tree)
+                if let Some(home_dir) = dirs::home_dir() {
+                    if binary_dir.starts_with(&home_dir) {
+                        // User installation: next to binary
+                        debug!(
+                            "Unix: User installation, using binary directory: {:?}",
+                            binary_dir
+                        );
+                        return binary_dir.to_path_buf();
+                    }
+                }
+
+                // System installation: use user config directory
+                if let Some(config_dir) = dirs::config_dir() {
+                    let dnspx_config_dir = config_dir.join("dnspx");
+                    debug!(
+                        "Unix: System installation, using user config directory: {:?}",
+                        dnspx_config_dir
+                    );
+                    return dnspx_config_dir;
+                }
+            }
+        }
+
+        // Final fallback to current directory
+        let current_dir = std::env::current_dir().unwrap_or_else(|e| {
+            eprintln!(
+                "[WARN] Failed to get current directory: {}. Using '.' as fallback.",
+                e
+            );
+            PathBuf::from(".")
+        });
+        debug!("Unix fallback: Using current directory: {:?}", current_dir);
+        current_dir
+    }
+}
+
 fn determine_initial_log_settings(config_path: &PathBuf) -> (LoggingConfig, bool) {
     let default_logging = LoggingConfig::default();
     let default_colors = true;
@@ -147,7 +222,8 @@ async fn main() -> anyhow::Result<()> {
     let is_tui_mode = !cli_args.cli_only;
 
     let console_supports_color = supports_color::on(supports_color::Stream::Stdout).is_some();
-    let config_base_path = std::env::current_dir().expect("Failed to get current directory");
+
+    let config_base_path = determine_config_base_path();
     let preliminary_config_path = config_base_path.join(config::DEFAULT_CONFIG_FILE_NAME_V2);
 
     let (initial_log_config_for_startup, initial_cli_color_pref) =

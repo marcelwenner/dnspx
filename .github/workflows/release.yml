@@ -284,16 +284,7 @@ jobs:
     - name: Generate build attestation
       uses: actions/attest-build-provenance@v2
       with:
-        subject-path: 'dist/dnspx-*.tar.gz'
-        subject-name: 'dnspx-${{ needs.validate.outputs.version }}-${{ matrix.name }}'
-        push-to-registry: false
-
-    # Generate attestations for Windows ZIP files
-    - name: Generate Windows attestation
-      if: matrix.os == 'windows-latest'
-      uses: actions/attest-build-provenance@v2
-      with:
-        subject-path: 'dist/dnspx-*.zip'
+        subject-path: 'dist/dnspx-*.${{ matrix.archive }}'
         subject-name: 'dnspx-${{ needs.validate.outputs.version }}-${{ matrix.name }}'
         push-to-registry: false
 
@@ -363,17 +354,17 @@ jobs:
             checksum_file="${file}.sha256"
             checksum_link=""
             if [[ -f "$checksum_file" ]]; then
-              checksum_link="[SHA256](./$checksum_file)"
+              checksum_link="[SHA256](https://github.com/${{ github.repository }}/releases/download/$VERSION/$checksum_file)"
             fi
             
             case "$file" in
-              *linux-x64*) echo "| Linux | x86_64 | [$file](./$file) | $checksum_link |" ;;
-              *linux-arm64*) echo "| Linux | ARM64 | [$file](./$file) | $checksum_link |" ;;
-              *linux-musl*) echo "| Linux (musl) | x86_64 | [$file](./$file) | $checksum_link |" ;;
-              *windows-x64*) echo "| Windows | x86_64 | [$file](./$file) | $checksum_link |" ;;
-              *windows-arm64*) echo "| Windows | ARM64 | [$file](./$file) | $checksum_link |" ;;
-              *macos-intel*) echo "| macOS | Intel | [$file](./$file) | $checksum_link |" ;;
-              *macos-arm64*) echo "| macOS | Apple Silicon | [$file](./$file) | $checksum_link |" ;;
+              *linux-x64*) echo "| Linux | x86_64 | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
+              *linux-arm64*) echo "| Linux | ARM64 | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
+              *linux-musl*) echo "| Linux (musl) | x86_64 | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
+              *windows-x64*) echo "| Windows | x86_64 | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
+              *windows-arm64*) echo "| Windows | ARM64 | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
+              *macos-intel*) echo "| macOS | Intel | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
+              *macos-arm64*) echo "| macOS | Apple Silicon | [$file](https://github.com/${{ github.repository }}/releases/download/$VERSION/$file) | $checksum_link |" ;;
             esac
           fi
         done >> ../release-notes.md
@@ -389,13 +380,13 @@ jobs:
         echo "dnspx --config dnspx_config.toml" >> ../release-notes.md
         echo "" >> ../release-notes.md
         echo "# Or manually verify using gh CLI:" >> ../release-notes.md
-        echo "gh attestation verify <downloaded-file> --repo mwenner/dnspx" >> ../release-notes.md
+        echo "gh attestation verify <downloaded-file> --repo marcelwenner/dnspx" >> ../release-notes.md
         echo '```' >> ../release-notes.md
         echo "" >> ../release-notes.md
         echo "**Attestation Details:**" >> ../release-notes.md
         echo "- **Builder**: GitHub Actions (https://github.com/actions)" >> ../release-notes.md
         echo "- **SLSA Level**: 3 (Hermetic builds with verified provenance)" >> ../release-notes.md
-        echo "- **Repository**: mwenner/dnspx" >> ../release-notes.md
+        echo "- **Repository**: marcelwenner/dnspx" >> ../release-notes.md
         echo "- **Verification**: All binaries cryptographically signed with build provenance" >> ../release-notes.md
 
     - name: Check if release already exists
@@ -432,35 +423,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Update version for next development cycle
-      if: needs.validate.outputs.is-prerelease == 'false'
-      run: |
-        VERSION="${{ needs.validate.outputs.version }}"
-        # Extract version parts
-        MAJOR=$(echo $VERSION | sed 's/v\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*/\1/')
-        MINOR=$(echo $VERSION | sed 's/v\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*/\2/')
-        PATCH=$(echo $VERSION | sed 's/v\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*/\3/')
-        
-        # Increment patch version
-        NEXT_PATCH=$((PATCH + 1))
-        NEXT_VERSION="$MAJOR.$MINOR.$NEXT_PATCH"
-        
-        echo "Updating version to $NEXT_VERSION-dev"
-        sed -i "s/version = \".*\"/version = \"$NEXT_VERSION-dev\"/" Cargo.toml
-
-    - name: Create post-release PR
-      if: needs.validate.outputs.is-prerelease == 'false'
-      uses: peter-evans/create-pull-request@v7
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "chore: bump version for next development cycle"
-        title: "chore: bump version for next development cycle"
-        body: |
-          Automatically created after release ${{ needs.validate.outputs.version }}
-          
-          This updates the version in Cargo.toml for the next development cycle.
-        branch: chore/post-release-version-bump
-        base: develop
 
     - name: Release summary
       run: |

@@ -37,6 +37,7 @@ impl AwsSdkVpcInfoProvider {
         aws_config::SdkConfig::builder()
             .credentials_provider(provider)
             .region(Region::new(region_str.to_string()))
+            .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new())
             .build()
     }
 

@@ -31,25 +31,54 @@ pub(crate) fn find_config_file() -> Result<PathBuf, ConfigError> {
 pub(crate) fn find_legacy_config_paths(
     base_search_dir: &Path,
 ) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>) {
-    let main_config = base_search_dir.join(DOTNET_LEGACY_MAIN_CONFIG_FILE_NAME);
-    let rules_config = base_search_dir.join(DOTNET_LEGACY_RULES_FILE_NAME);
-    let hosts_config = base_search_dir.join(DOTNET_LEGACY_HOSTS_FILE_NAME);
+    fn check_legacy_files_in_dir(
+        dir: &Path,
+    ) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>) {
+        let main_config = dir.join(DOTNET_LEGACY_MAIN_CONFIG_FILE_NAME);
+        let rules_config = dir.join(DOTNET_LEGACY_RULES_FILE_NAME);
+        let hosts_config = dir.join(DOTNET_LEGACY_HOSTS_FILE_NAME);
 
-    (
-        if main_config.exists() {
-            Some(main_config)
-        } else {
-            None
-        },
-        if rules_config.exists() {
-            Some(rules_config)
-        } else {
-            None
-        },
-        if hosts_config.exists() {
-            Some(hosts_config)
-        } else {
-            None
-        },
-    )
+        (
+            if main_config.exists() {
+                Some(main_config)
+            } else {
+                None
+            },
+            if rules_config.exists() {
+                Some(rules_config)
+            } else {
+                None
+            },
+            if hosts_config.exists() {
+                Some(hosts_config)
+            } else {
+                None
+            },
+        )
+    }
+
+    let (main_opt, rules_opt, hosts_opt) = check_legacy_files_in_dir(base_search_dir);
+
+    if main_opt.is_some() {
+        return (main_opt, rules_opt, hosts_opt);
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            if exe_dir != base_search_dir {
+                tracing::debug!(
+                    "Legacy config not found in {:?}, trying executable directory: {:?}",
+                    base_search_dir,
+                    exe_dir
+                );
+                let (exe_main_opt, exe_rules_opt, exe_hosts_opt) =
+                    check_legacy_files_in_dir(exe_dir);
+                if exe_main_opt.is_some() {
+                    return (exe_main_opt, exe_rules_opt, exe_hosts_opt);
+                }
+            }
+        }
+    }
+
+    (None, None, None)
 }
