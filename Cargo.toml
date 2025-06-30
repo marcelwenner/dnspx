@@ -101,7 +101,7 @@ sha2 = "0.10"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]
-sspi = "0.15.9"
+sspi = "0.15.13"
 picky-asn1 = "0.10"
 
 [dev-dependencies]
