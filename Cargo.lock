@@ -4477,9 +4477,9 @@ dependencies = [
 
 [[package]]
 name = "sspi"
-version = "0.15.12"
+version = "0.15.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f871490254320ccd1979e62fe3469e0976441f616d5cc98568e75f57a7d15567"
+checksum = "52de87ee3f7beae3d311fa9a8a866ef71f53ac59807ce4d15d1b1d39f0aedb56"
 dependencies = [
  "async-dnssd",
  "async-recursion",
@@ -4515,7 +4515,7 @@ dependencies = [
  "uuid",
  "windows",
  "windows-registry",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
  "zeroize",
 ]
 
