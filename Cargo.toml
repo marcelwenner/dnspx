@@ -92,7 +92,7 @@ base64 = "0.22"
 jsonwebtoken = "9.2"
 
 # Auto-update functionality
-self_update = { version = "0.41", features = ["archive-tar", "archive-zip", "rustls"], default-features = false }
+self_update = { version = "0.42", features = ["archive-tar", "archive-zip", "rustls"], default-features = false }
 semver = { version = "1.0", features = ["serde"] }
 tar = "0.4"
 flate2 = "1.0"
