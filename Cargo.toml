@@ -63,14 +63,14 @@ ipnetwork = { version = "0.21", features = ["serde"] }
 aws-config = { version = "1.5", features = ["rustls"], default-features = false }
 aws-sdk-sts = { version = "1.73.0", default-features = false }
 aws-smithy-async = { version = "1.2", features = ["rt-tokio"] }
-aws-sdk-ec2 = { version = "1.137.0", default-features = false }
+aws-sdk-ec2 = { version = "1.141.0", default-features = false }
 aws-credential-types = "1.2"
 aws-sdk-apigateway = { version = "1.75.0", default-features = false }
-aws-sdk-rds = { version = "1.91.0", default-features = false }
+aws-sdk-rds = { version = "1.95.0", default-features = false }
 aws-sdk-elasticache = { version = "1.78.0", default-features = false }
 aws-sdk-docdb = { version = "1.76.0", default-features = false }
 aws-sdk-route53 = { version = "1.80.0", default-features = false }
-aws-sdk-route53resolver = { version = "1.77.0", default-features = false }
+aws-sdk-route53resolver = { version = "1.79.0", default-features = false }
 
 # Terminal & UI
 supports-color = "3.0"
