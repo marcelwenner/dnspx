@@ -11,21 +11,53 @@ pub(crate) const DOTNET_LEGACY_RULES_FILE_NAME: &str = "rules.json";
 pub(crate) const DOTNET_LEGACY_HOSTS_FILE_NAME: &str = "hosts.json";
 
 pub(crate) fn find_config_file() -> Result<PathBuf, ConfigError> {
-    let current_dir_path = Path::new(".").join(DEFAULT_CONFIG_FILE_NAME_V2);
-    if current_dir_path.exists() {
-        return Ok(current_dir_path);
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            let local_path = dir.join(DEFAULT_CONFIG_FILE_NAME_V2);
+            if local_path.exists() {
+                tracing::info!(
+                    "Konfigurationsdatei im Anwendungsverzeichnis gefunden: {:?}",
+                    local_path
+                );
+                return Ok(local_path);
+            }
+        }
     }
 
-    if let Some(user_config_dir) = dirs::config_dir() {
-        let user_config_path = user_config_dir
-            .join("dnspx")
-            .join(DEFAULT_CONFIG_FILE_NAME_V2);
-        if user_config_path.exists() {
-            return Ok(user_config_path);
+    if let Some(config_dir) = dirs::config_dir() {
+        let user_path = config_dir.join("dnspx").join(DEFAULT_CONFIG_FILE_NAME_V2);
+        if user_path.exists() {
+            tracing::info!(
+                "Konfigurationsdatei im Benutzer-Konfig-Verzeichnis gefunden: {:?}",
+                user_path
+            );
+            return Ok(user_path);
         }
-        return Ok(user_config_path);
     }
-    Ok(current_dir_path)
+
+    if let Some(config_dir) = dirs::config_dir() {
+        let default_path = config_dir.join("dnspx").join(DEFAULT_CONFIG_FILE_NAME_V2);
+        tracing::warn!(
+            "Keine Konfigurationsdatei gefunden. Der Standardpfad für eine neue Datei ist: {:?}",
+            default_path
+        );
+        return Ok(default_path);
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            let local_path = dir.join(DEFAULT_CONFIG_FILE_NAME_V2);
+            tracing::warn!("Kein Benutzer-Konfig-Verzeichnis gefunden. Fallback-Pfad für neue Konfigurationsdatei: {:?}", local_path);
+            return Ok(local_path);
+        }
+    }
+
+    let fallback_path = PathBuf::from(".").join(DEFAULT_CONFIG_FILE_NAME_V2);
+    tracing::warn!(
+        "Kein Benutzer-Konfig-Verzeichnis oder Anwendungsverzeichnis gefunden. Fallback-Pfad: {:?}",
+        fallback_path
+    );
+    Ok(fallback_path)
 }
 
 pub(crate) fn find_legacy_config_paths(

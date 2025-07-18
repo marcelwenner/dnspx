@@ -1,5 +1,5 @@
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{DnsMessage as AppDnsMessage, parse_dns_message, serialize_dns_message};
+use crate::dns_protocol::{parse_dns_message, serialize_dns_message, DnsMessage as AppDnsMessage};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
 use hickory_proto::op::ResponseCode;
 use std::net::SocketAddr;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, debug, error, info, warn};
+use tracing::{debug, error, info, warn, Instrument};
 
 async fn handle_tcp_connection(
     mut stream: TcpStream,

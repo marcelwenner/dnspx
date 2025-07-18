@@ -147,20 +147,20 @@ impl VerifiedUpdateManager {
                                 match self.install_update(&update_info).await {
                                     Ok(UpdateResult::UpdateInstalled { from_version, to_version }) => {
                                         user_interaction.display_message(
-                                            &format!("Successfully updated from v{} to v{}", from_version, to_version),
+                                            &format!("Successfully updated from v{from_version} to v{to_version}"),
                                             MessageLevel::Info,
                                         );
                                     }
                                     Ok(UpdateResult::UpdateFailed { error, rollback_performed }) => {
                                         user_interaction.display_message(
-                                            &format!("Update failed: {}. Rollback performed: {}", error, rollback_performed),
+                                            &format!("Update failed: {error}. Rollback performed: {rollback_performed}"),
                                             MessageLevel::Error,
                                         );
                                     }
                                     Err(e) => {
                                         error!("Auto-update failed: {}", e);
                                         user_interaction.display_message(
-                                            &format!("Auto-update failed: {}", e),
+                                            &format!("Auto-update failed: {e}"),
                                             MessageLevel::Error,
                                         );
                                     }
@@ -230,7 +230,7 @@ impl VerifiedUpdateManager {
         }
 
         let release: GitHubRelease = response.json().await.map_err(|e| {
-            UpdateError::CheckFailed(format!("Failed to parse GitHub response: {}", e))
+            UpdateError::CheckFailed(format!("Failed to parse GitHub response: {e}"))
         })?;
 
         if release.draft {
@@ -266,7 +266,7 @@ impl VerifiedUpdateManager {
 
         let extension = if os == "windows" { "zip" } else { "tar.gz" };
 
-        format!("{}.{}", platform_name, extension)
+        format!("{platform_name}.{extension}")
     }
 
     fn get_expected_target_names(&self) -> Vec<String> {
@@ -336,7 +336,7 @@ impl VerifiedUpdateManager {
         // Try to find asset with version-prefixed names based on release workflow patterns
         // Format: dnspx-v{VERSION}-{platform_name}.{extension}
         // release_version comes without 'v' prefix, so we need to add it
-        let expected_name = format!("dnspx-v{}-{}", release_version, platform_suffix);
+        let expected_name = format!("dnspx-v{release_version}-{platform_suffix}");
         debug!("Looking for asset matching: {}", expected_name);
 
         // First try exact match with version prefix
@@ -491,7 +491,7 @@ impl VerifiedUpdateManager {
             let mut reader = BufReader::new(file);
             let mut buffer = Vec::new();
             reader.read_to_end(&mut buffer).map_err(|e| {
-                UpdateError::InstallationFailed(format!("Failed to read archive: {}", e))
+                UpdateError::InstallationFailed(format!("Failed to read archive: {e}"))
             })?;
 
             let cursor = std::io::Cursor::new(buffer);
@@ -499,13 +499,13 @@ impl VerifiedUpdateManager {
             let mut archive = tar::Archive::new(tar);
 
             archive.unpack(&extract_dir).map_err(|e| {
-                UpdateError::InstallationFailed(format!("Failed to extract tar.gz: {}", e))
+                UpdateError::InstallationFailed(format!("Failed to extract tar.gz: {e}"))
             })?;
 
             Ok::<(), UpdateError>(())
         })
         .await
-        .map_err(|e| UpdateError::InstallationFailed(format!("Extraction task failed: {}", e)))?
+        .map_err(|e| UpdateError::InstallationFailed(format!("Extraction task failed: {e}")))?
     }
 
     async fn extract_zip(
@@ -524,18 +524,17 @@ impl VerifiedUpdateManager {
                 source: e,
             })?;
 
-            let mut archive = zip::ZipArchive::new(file).map_err(|e| {
-                UpdateError::InstallationFailed(format!("Failed to open zip: {}", e))
-            })?;
+            let mut archive = zip::ZipArchive::new(file)
+                .map_err(|e| UpdateError::InstallationFailed(format!("Failed to open zip: {e}")))?;
 
             archive.extract(&extract_dir).map_err(|e| {
-                UpdateError::InstallationFailed(format!("Failed to extract zip: {}", e))
+                UpdateError::InstallationFailed(format!("Failed to extract zip: {e}"))
             })?;
 
             Ok::<(), UpdateError>(())
         })
         .await
-        .map_err(|e| UpdateError::InstallationFailed(format!("Extraction task failed: {}", e)))?
+        .map_err(|e| UpdateError::InstallationFailed(format!("Extraction task failed: {e}")))?
     }
 }
 
@@ -555,10 +554,10 @@ impl UpdateManagerPort for VerifiedUpdateManager {
 
         let release = self.fetch_latest_release().await?;
         let current_version = Version::parse(env!("CARGO_PKG_VERSION"))
-            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid current version: {}", e)))?;
+            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid current version: {e}")))?;
 
         let latest_version = Version::parse(release.tag_name.trim_start_matches('v'))
-            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid release version: {}", e)))?;
+            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid release version: {e}")))?;
 
         if latest_version <= current_version {
             debug!("Already up to date: v{}", current_version);
@@ -611,10 +610,10 @@ impl UpdateManagerPort for VerifiedUpdateManager {
         }
 
         let current_version = Version::parse(env!("CARGO_PKG_VERSION"))
-            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid current version: {}", e)))?;
+            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid current version: {e}")))?;
 
         let new_version = Version::parse(&update_info.version)
-            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid update version: {}", e)))?;
+            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid update version: {e}")))?;
 
         info!(
             "Installing update: v{} -> v{}",
@@ -757,20 +756,18 @@ impl UpdateManagerPort for VerifiedUpdateManager {
             .and_then(|s| s.strip_suffix(".backup"))
             .ok_or_else(|| {
                 UpdateError::RollbackFailed(format!(
-                    "Cannot extract version from backup filename: {}",
-                    backup_filename
+                    "Cannot extract version from backup filename: {backup_filename}"
                 ))
             })?;
 
         let backup_version = Version::parse(backup_version_str).map_err(|e| {
             UpdateError::RollbackFailed(format!(
-                "Invalid version in backup filename '{}': {}",
-                backup_filename, e
+                "Invalid version in backup filename '{backup_filename}': {e}"
             ))
         })?;
 
         let current_version = Version::parse(env!("CARGO_PKG_VERSION"))
-            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid current version: {}", e)))?;
+            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid current version: {e}")))?;
 
         info!(
             "Performing manual rollback from v{} to v{}",
@@ -793,13 +790,12 @@ impl UpdateManagerPort for VerifiedUpdateManager {
 
             move_op.to_dest(&current_binary_path).map_err(|e| {
                 UpdateError::RollbackFailed(format!(
-                    "Failed to restore backup using self_update: {}",
-                    e
+                    "Failed to restore backup using self_update: {e}"
                 ))
             })
         })
         .await
-        .map_err(|e| UpdateError::RollbackFailed(format!("Rollback task failed: {}", e)))??;
+        .map_err(|e| UpdateError::RollbackFailed(format!("Rollback task failed: {e}")))??;
 
         if health_check_enabled {
             let health_check = async {
@@ -807,7 +803,7 @@ impl UpdateManagerPort for VerifiedUpdateManager {
                     .arg("--version")
                     .output()
                     .map_err(|e| {
-                        UpdateError::RollbackFailed(format!("Health check failed: {}", e))
+                        UpdateError::RollbackFailed(format!("Health check failed: {e}"))
                     })?;
 
                 if !output.status.success() {

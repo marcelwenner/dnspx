@@ -1,11 +1,11 @@
 use crate::adapters::tui::app::{CacheAddStep, TuiApp};
 use hickory_proto::rr::RecordType;
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    Frame,
 };
 
 fn centered_rect_for_modal(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

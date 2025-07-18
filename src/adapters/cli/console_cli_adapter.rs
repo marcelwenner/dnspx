@@ -472,7 +472,7 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                                 message.push_str("⚠️  This update contains breaking changes.\n");
                             }
                             if let Some(release_notes) = &update_info.release_notes {
-                                message.push_str(&format!("\nRelease Notes:\n{}", release_notes));
+                                message.push_str(&format!("\nRelease Notes:\n{release_notes}"));
                             }
                             message.push_str("\nUse 'update install' to install this update.");
                             Ok(CliOutput::Message(message))
@@ -481,10 +481,7 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                             "Already up to date: v{}",
                             update_manager.get_current_version()
                         ))),
-                        Err(e) => Err(CliError::UpdateFailed(format!(
-                            "Update check failed: {}",
-                            e
-                        ))),
+                        Err(e) => Err(CliError::UpdateFailed(format!("Update check failed: {e}"))),
                         _ => Ok(CliOutput::Message("Unexpected update result".to_string())),
                     }
                 } else {
@@ -502,19 +499,16 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                                     from_version,
                                     to_version,
                                 }) => Ok(CliOutput::Message(format!(
-                                    "Successfully updated from v{} to v{}. Restart required.",
-                                    from_version, to_version
+                                    "Successfully updated from v{from_version} to v{to_version}. Restart required."
                                 ))),
                                 Ok(UpdateResult::UpdateFailed {
                                     error,
                                     rollback_performed,
                                 }) => Ok(CliOutput::Message(format!(
-                                    "Update failed: {}. Rollback performed: {}",
-                                    error, rollback_performed
+                                    "Update failed: {error}. Rollback performed: {rollback_performed}"
                                 ))),
                                 Err(e) => Err(CliError::UpdateFailed(format!(
-                                    "Installation failed: {}",
-                                    e
+                                    "Installation failed: {e}"
                                 ))),
                                 _ => Ok(CliOutput::Message(
                                     "Unexpected installation result".to_string(),
@@ -524,10 +518,7 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                         Ok(UpdateResult::UpToDate) => Ok(CliOutput::Message(
                             "Already up to date. No installation needed.".to_string(),
                         )),
-                        Err(e) => Err(CliError::UpdateFailed(format!(
-                            "Update check failed: {}",
-                            e
-                        ))),
+                        Err(e) => Err(CliError::UpdateFailed(format!("Update check failed: {e}"))),
                         _ => Ok(CliOutput::Message(
                             "Unexpected update check result".to_string(),
                         )),
@@ -584,10 +575,9 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                             from_version,
                             to_version,
                         }) => Ok(CliOutput::Message(format!(
-                            "Successfully rolled back from v{} to v{}. Restart required.",
-                            from_version, to_version
+                            "Successfully rolled back from v{from_version} to v{to_version}. Restart required."
                         ))),
-                        Err(e) => Err(CliError::UpdateFailed(format!("Rollback failed: {}", e))),
+                        Err(e) => Err(CliError::UpdateFailed(format!("Rollback failed: {e}"))),
                         _ => Ok(CliOutput::Message("Unexpected rollback result".to_string())),
                     }
                 } else {

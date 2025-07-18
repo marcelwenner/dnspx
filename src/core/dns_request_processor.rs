@@ -3,14 +3,14 @@ use crate::core::error::{DnsProcessingError, ResolveError};
 use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::rule_engine::{ResolutionInstruction, RuleEngine};
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
+use crate::dns_protocol::{parse_dns_message, serialize_dns_message, DnsMessage, DnsQuestion};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService, UpstreamResolver};
 use async_trait::async_trait;
 use hickory_proto::op::ResponseCode;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{Instrument, Level, Span, debug, error, event, field, instrument, warn};
+use tracing::{debug, error, event, field, instrument, warn, Instrument, Level, Span};
 use url::Url;
 
 pub(crate) struct DnsRequestProcessor {
@@ -376,7 +376,6 @@ impl DnsQueryService for DnsRequestProcessor {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::AppConfig;
     use crate::aws_integration::scanner::DiscoveredAwsNetworkInfo;
     use crate::config::models::{
         AwsAccountConfig, CacheConfig, CliConfig, DefaultResolverConfig, HashableRegex,
@@ -385,6 +384,7 @@ mod integration_tests {
     use crate::core::error::{CliError, ConfigError};
     use crate::core::types::AppStatus;
     use crate::ports::{AwsConfigProvider, StatusReporterPort, UserInteractionPort};
+    use crate::AppConfig;
 
     use hickory_proto::op::ResponseCode;
     use hickory_proto::rr::RecordType;
@@ -734,12 +734,12 @@ mod integration_tests {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     TestResolveError::Timeout { server, duration } => {
-                        write!(f, "Test timeout for server {} after {:?}", server, duration)
+                        write!(f, "Test timeout for server {server} after {duration:?}")
                     }
                     TestResolveError::Configuration(msg) => {
-                        write!(f, "Test configuration error: {}", msg)
+                        write!(f, "Test configuration error: {msg}")
                     }
-                    TestResolveError::Network(msg) => write!(f, "Test network error: {}", msg),
+                    TestResolveError::Network(msg) => write!(f, "Test network error: {msg}"),
                 }
             }
         }
@@ -1039,20 +1039,20 @@ mod integration_tests {
             domain: &str,
         ) -> Result<DnsMessage, String> {
             let query_msg = DnsMessage::new_query(12345, domain, RecordType::A)
-                .map_err(|e| format!("Failed to create query: {}", e))?;
+                .map_err(|e| format!("Failed to create query: {e}"))?;
 
             let query_bytes = serialize_dns_message(&query_msg)
-                .map_err(|e| format!("Failed to serialize query: {}", e))?;
+                .map_err(|e| format!("Failed to serialize query: {e}"))?;
 
             let client_addr: SocketAddr = "127.0.0.1:54321".parse().unwrap();
 
             let response_bytes = processor
                 .process_query(query_bytes, client_addr, ProtocolType::Udp)
                 .await
-                .map_err(|e| format!("Failed to process query: {}", e))?;
+                .map_err(|e| format!("Failed to process query: {e}"))?;
 
             let response_msg = parse_dns_message(&response_bytes)
-                .map_err(|e| format!("Failed to parse response: {}", e))?;
+                .map_err(|e| format!("Failed to parse response: {e}"))?;
 
             Ok(response_msg)
         }

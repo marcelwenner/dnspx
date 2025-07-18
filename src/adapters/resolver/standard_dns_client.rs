@@ -1,10 +1,10 @@
 use crate::config::models::HttpProxyConfig;
 use crate::core::error::ResolveError;
-use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
+use crate::dns_protocol::{parse_dns_message, serialize_dns_message, DnsMessage, DnsQuestion};
 use crate::ports::UpstreamResolver;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket, lookup_host};
+use tokio::net::{lookup_host, TcpStream, UdpSocket};
 use tokio::time::timeout;
 use tracing::{debug, error, field, instrument, warn};
 use url::Url;
@@ -383,7 +383,7 @@ mod tests {
                 );
             }
             Err(e) => {
-                println!("Live DNS test skipped due to network error: {:?}", e);
+                println!("Live DNS test skipped due to network error: {e:?}");
                 // Don't fail the test in case of network issues
             }
         }

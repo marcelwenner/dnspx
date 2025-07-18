@@ -424,9 +424,9 @@ impl AwsScannerTestHarness {
 
     fn create_mock_credentials(prefix: &str) -> AwsCredentials {
         Credentials::new(
-            format!("MOCK_{}_ACCESS_KEY", prefix),
-            format!("MOCK_{}_SECRET_KEY", prefix),
-            Some(format!("MOCK_{}_SESSION_TOKEN", prefix)),
+            format!("MOCK_{prefix}_ACCESS_KEY"),
+            format!("MOCK_{prefix}_SECRET_KEY"),
+            Some(format!("MOCK_{prefix}_SESSION_TOKEN")),
             Some(SystemTime::now() + Duration::from_secs(3600)),
             "MockProvider",
         )
@@ -439,16 +439,13 @@ impl AwsScannerTestHarness {
         service_type: &str,
     ) -> AwsDiscoveredEndpoint {
         AwsDiscoveredEndpoint {
-            service_dns_name: format!("{}.{}.amazonaws.com", service_name, region),
-            vpc_endpoint_dns_name: Some(format!(
-                "vpce-{}.{}.vpce.amazonaws.com",
-                service_name, region
-            )),
+            service_dns_name: format!("{service_name}.{region}.amazonaws.com"),
+            vpc_endpoint_dns_name: Some(format!("vpce-{service_name}.{region}.vpce.amazonaws.com")),
             private_ips: vec![private_ip.parse().unwrap()],
             service_type: service_type.to_string(),
             region: region.to_string(),
             vpc_id: Some("vpc-test123".to_string()),
-            comment: Some(format!("Test {} endpoint in {}", service_type, region)),
+            comment: Some(format!("Test {service_type} endpoint in {region}")),
         }
     }
 }

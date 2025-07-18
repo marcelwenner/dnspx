@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::{Notify, RwLock};
 use tokio::time;
-use tracing::{Instrument, debug, error, info, warn};
+use tracing::{debug, error, info, warn, Instrument};
 const VPC_DNS_RESOLVER_IP: &str = "169.254.169.253";
 const VPC_DNS_TIMEOUT: StdDuration = StdDuration::from_secs(2);
 

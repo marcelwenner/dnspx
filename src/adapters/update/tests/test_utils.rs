@@ -36,10 +36,7 @@ pub(super) fn calculate_sha256(data: &[u8]) -> String {
 }
 
 pub(super) fn create_test_executable_content(version: &str) -> Vec<u8> {
-    let content = format!(
-        "#!/bin/bash\necho 'Test DNSPX Binary Version {}'\nexit 0\n",
-        version
-    );
+    let content = format!("#!/bin/bash\necho 'Test DNSPX Binary Version {version}'\nexit 0\n");
     content.into_bytes()
 }
 

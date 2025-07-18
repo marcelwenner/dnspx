@@ -256,7 +256,7 @@ mod tests {
             .map(|i| {
                 let ui = Arc::clone(&tui_interaction);
                 tokio::spawn(async move {
-                    ui.display_message(&format!("Concurrent message {}", i), MessageLevel::Info);
+                    ui.display_message(&format!("Concurrent message {i}"), MessageLevel::Info);
                 })
             })
             .collect::<Vec<_>>();
@@ -272,7 +272,7 @@ mod tests {
         let tui_interaction = TuiUserInteractionAdapter::new(tx);
 
         for i in 0..10 {
-            tui_interaction.display_message(&format!("Message {}", i), MessageLevel::Info);
+            tui_interaction.display_message(&format!("Message {i}"), MessageLevel::Info);
         }
     }
 
@@ -312,7 +312,7 @@ mod tests {
             let adapter = Arc::clone(&cli_adapter);
             tokio::spawn(async move {
                 for i in 0..100 {
-                    adapter.display_message(&format!("CLI stress test {}", i), MessageLevel::Debug);
+                    adapter.display_message(&format!("CLI stress test {i}"), MessageLevel::Debug);
                     if i % 10 == 0 {
                         tokio::task::yield_now().await;
                     }
@@ -325,7 +325,7 @@ mod tests {
             tokio::spawn(async move {
                 for i in 0..100 {
                     interaction
-                        .display_message(&format!("TUI stress test {}", i), MessageLevel::Trace);
+                        .display_message(&format!("TUI stress test {i}"), MessageLevel::Trace);
                     if i % 10 == 0 {
                         tokio::task::yield_now().await;
                     }

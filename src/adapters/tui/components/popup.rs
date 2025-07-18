@@ -1,9 +1,9 @@
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Text},
     widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
 };
 
 pub(crate) struct PopupConfig<'a> {

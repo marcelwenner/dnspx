@@ -169,7 +169,7 @@ mod tests {
 
         match result {
             Err(ProfileReadError::NoConfigFilesFound) => {}
-            Err(e) => panic!("Expected NoConfigFilesFound error, got: {}", e),
+            Err(e) => panic!("Expected NoConfigFilesFound error, got: {e}"),
             Ok(_) => panic!("Expected error but got success"),
         }
     }

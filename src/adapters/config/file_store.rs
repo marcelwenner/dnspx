@@ -1,9 +1,9 @@
-use crate::config::DEFAULT_CONFIG_FILE_NAME_V2;
 use crate::config::models::{AppConfig, DotNetLegacyConfig};
+use crate::config::DEFAULT_CONFIG_FILE_NAME_V2;
 use crate::core::error::ConfigError;
 use crate::ports::ConfigurationStore;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -151,6 +151,24 @@ impl ConfigurationStore for JsonFileConfigAdapter {
         ];
         for path_opt in paths_to_backup.iter().filter_map(|p| p.as_ref()) {
             if path_opt.exists() {
+                match fs::metadata(path_opt) {
+                    Ok(metadata) if metadata.permissions().readonly() => {
+                        warn!(
+                            "Legacy-Konfigurationsdatei {:?} ist schreibgeschützt. Kann nicht umbenannt werden. Die Datei wird ignoriert, aber nicht verschoben.",
+                            path_opt
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Konnte Metadaten für {:?} nicht lesen: {}. Überspringe Backup.",
+                            path_opt, e
+                        );
+                        continue;
+                    }
+                    _ => {}
+                }
+
                 let backup_path = path_opt.with_extension(format!(
                     "{}.migrated_bak",
                     path_opt
@@ -163,10 +181,13 @@ impl ConfigurationStore for JsonFileConfigAdapter {
                     "Backing up .NET legacy file {:?} to {:?}",
                     path_opt, backup_path
                 );
-                fs::rename(path_opt, &backup_path).map_err(|e| ConfigError::WriteFile {
-                    path: path_opt.clone(),
-                    source: e,
-                })?;
+
+                if let Err(e) = fs::rename(path_opt, &backup_path) {
+                    warn!(
+                        "Konnte Legacy-Datei {:?} nicht umbenennen: {}. Dies kann passieren, wenn die Anwendung in einem geschützten Verzeichnis (z.B. Programme) läuft. Die neue Konfiguration wird trotzdem im Benutzerverzeichnis erstellt.",
+                        path_opt, e
+                    );
+                }
             }
         }
         Ok(())
@@ -190,7 +211,7 @@ mod tests {
     use crate::core::error::ConfigError;
     use serde::{Deserialize, Serialize};
     use std::fs;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::{tempdir, TempDir};
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct TestJsonData {
@@ -414,7 +435,7 @@ mod tests {
                 ConfigError::WriteFile { .. } => {
                     // Expected error type
                 }
-                other => panic!("Expected WriteFile error, got: {:?}", other),
+                other => panic!("Expected WriteFile error, got: {other:?}"),
             }
         }
     }

@@ -322,7 +322,7 @@ mod error_handling_tests {
         match result {
             Ok(UpdateResult::UpToDate) => {}
             other => {
-                panic!("Expected UpToDate when updates disabled, got: {:?}", other);
+                panic!("Expected UpToDate when updates disabled, got: {other:?}");
             }
         }
     }
@@ -548,8 +548,7 @@ mod advanced_mock_tests {
                 assert!(!error.is_empty());
                 assert!(
                     rollback_performed || error.contains("permission") || error.contains("access"),
-                    "Should either perform rollback or fail with permission error. Error: {}",
-                    error
+                    "Should either perform rollback or fail with permission error. Error: {error}"
                 );
             }
             Ok(UpdateResult::UpdateInstalled { .. }) => {
@@ -591,8 +590,7 @@ mod advanced_mock_tests {
                     error_msg.contains("version")
                         || error_msg.contains("url")
                         || error_msg.contains("invalid"),
-                    "Error message should be descriptive: {}",
-                    error_msg
+                    "Error message should be descriptive: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -602,8 +600,7 @@ mod advanced_mock_tests {
                 assert!(!error.is_empty());
                 assert!(
                     error.contains("version") || error.contains("url") || error.contains("invalid"),
-                    "Error message should be descriptive: {}",
-                    error
+                    "Error message should be descriptive: {error}"
                 );
             }
             Ok(_) => {

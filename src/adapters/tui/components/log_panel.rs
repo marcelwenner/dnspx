@@ -1,11 +1,11 @@
 use crate::adapters::tui::app::TuiApp;
 use crate::core::types::MessageLevel;
 use ratatui::{
-    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
+    Frame,
 };
 
 pub(crate) fn draw_log_panel(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect) {

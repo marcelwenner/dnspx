@@ -582,19 +582,14 @@ mod tests {
             messages
                 .iter()
                 .any(|msg| msg.level == level && msg.text.contains(text_contains)),
-            "Expected message with level {:?} containing '{}', not found in: {:?}",
-            level,
-            text_contains,
-            messages
+            "Expected message with level {level:?} containing '{text_contains}', not found in: {messages:?}"
         );
     }
 
     fn assert_no_message_contains(messages: &[MigrationMessage], text_contains: &str) {
         assert!(
             !messages.iter().any(|msg| msg.text.contains(text_contains)),
-            "Found unexpected message containing '{}' in: {:?}",
-            text_contains,
-            messages
+            "Found unexpected message containing '{text_contains}' in: {messages:?}"
         );
     }
 
@@ -733,18 +728,14 @@ mod tests {
         assert!(app_config.local_hosts.is_some());
         let hosts_entries = &app_config.local_hosts.as_ref().unwrap().entries;
         assert_eq!(hosts_entries.get("multi.host.local").unwrap().len(), 2);
-        assert!(
-            hosts_entries
-                .get("multi.host.local")
-                .unwrap()
-                .contains(&IpAddr::from_str("192.168.99.1").unwrap())
-        );
-        assert!(
-            hosts_entries
-                .get("multi.host.local")
-                .unwrap()
-                .contains(&IpAddr::from_str("192.168.99.2").unwrap())
-        );
+        assert!(hosts_entries
+            .get("multi.host.local")
+            .unwrap()
+            .contains(&IpAddr::from_str("192.168.99.1").unwrap()));
+        assert!(hosts_entries
+            .get("multi.host.local")
+            .unwrap()
+            .contains(&IpAddr::from_str("192.168.99.2").unwrap()));
         assert_eq!(hosts_entries.get("alias.host.local").unwrap().len(), 2);
         assert_eq!(
             hosts_entries.get("ipv6.host.local").unwrap(),
@@ -907,18 +898,14 @@ mod tests {
         assert!(app_config.local_hosts.is_some());
         let entries = &app_config.local_hosts.as_ref().unwrap().entries;
         assert_eq!(entries.get("multi.ip.test").unwrap().len(), 2);
-        assert!(
-            entries
-                .get("multi.ip.test")
-                .unwrap()
-                .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))
-        );
-        assert!(
-            entries
-                .get("multi.ip.test")
-                .unwrap()
-                .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 2)))
-        );
+        assert!(entries
+            .get("multi.ip.test")
+            .unwrap()
+            .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
+        assert!(entries
+            .get("multi.ip.test")
+            .unwrap()
+            .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 2))));
         assert_eq!(
             entries.get("single.ip.test").unwrap(),
             &vec![IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))]
@@ -1071,18 +1058,14 @@ mod tests {
         let (config, messages) = migrate(legacy).unwrap();
 
         assert_eq!(config.routing_rules.len(), 2);
-        assert!(
-            config
-                .routing_rules
-                .iter()
-                .any(|r| r.domain_pattern.0.as_str() == "(.*)\\.box")
-        );
-        assert!(
-            config
-                .routing_rules
-                .iter()
-                .any(|r| r.domain_pattern.0.as_str() == "^blun\\.de$")
-        );
+        assert!(config
+            .routing_rules
+            .iter()
+            .any(|r| r.domain_pattern.0.as_str() == "(.*)\\.box"));
+        assert!(config
+            .routing_rules
+            .iter()
+            .any(|r| r.domain_pattern.0.as_str() == "^blun\\.de$"));
 
         assert!(config.local_hosts.is_some());
         let entries = &config.local_hosts.as_ref().unwrap().entries;
@@ -1110,7 +1093,7 @@ mod tests {
         assert!(config.routing_rules.is_empty());
         assert!(config.local_hosts.is_none());
 
-        println!("Actual messages: {:?}", messages);
+        println!("Actual messages: {messages:?}");
 
         assert_no_message_contains(
             &messages,
@@ -1126,7 +1109,7 @@ mod tests {
     fn test_migrate_large_config_performance() {
         let mut rules = Vec::new();
         for i in 0..1000 {
-            rules.push(format!(r#"{{ "DomainName": "host{}.test", "NameServer": ["1.1.1.1"], "IsEnabled": true }}"#, i));
+            rules.push(format!(r#"{{ "DomainName": "host{i}.test", "NameServer": ["1.1.1.1"], "IsEnabled": true }}"#));
         }
         let rules_json = format!(
             r#"{{ "RulesConfig": {{ "Rules": [{}] }}}}"#,
@@ -1141,8 +1124,7 @@ mod tests {
         assert_eq!(config.routing_rules.len(), 1000);
         assert!(
             duration < Duration::from_millis(500),
-            "Migration took too long: {:?}",
-            duration
+            "Migration took too long: {duration:?}"
         );
     }
     #[test]
@@ -1175,11 +1157,10 @@ mod tests {
     fn test_migrate_memory_efficiency() {
         let mut host_entries = Vec::new();
         for i in 0..100 {
-            let ips: Vec<String> = (0..10).map(|j| format!("192.168.{}.{}", i, j)).collect();
-            let domains: Vec<String> = (0..5).map(|k| format!("host{}-{}.test", i, k)).collect();
+            let ips: Vec<String> = (0..10).map(|j| format!("192.168.{i}.{j}")).collect();
+            let domains: Vec<String> = (0..5).map(|k| format!("host{i}-{k}.test")).collect();
             host_entries.push(format!(
-                r#"{{ "IpAddresses": {:?}, "DomainNames": {:?} }}"#,
-                ips, domains
+                r#"{{ "IpAddresses": {ips:?}, "DomainNames": {domains:?} }}"#
             ));
         }
 
@@ -1287,13 +1268,12 @@ mod tests {
             r#"{{
             "DnsHostConfig": {{ "ListenerPort": 53 }},
             "HttpProxyConfig": {{ 
-                "Address": "{}", 
+                "Address": "{long_string}", 
                 "Port": 8080,
-                "User": "{}",
-                "BypassAddresses": "{}"
+                "User": "{long_string}",
+                "BypassAddresses": "{long_string}"
             }}
-        }}"#,
-            long_string, long_string, long_string
+        }}"#
         );
 
         let parse_result: Result<DotNetMainConfig, _> = serde_json::from_str(&main_json);
@@ -1319,12 +1299,11 @@ mod tests {
         let rules_json = format!(
             r#"{{
             "RulesConfig": {{ "Rules": [{{
-                "DomainName": "{}",
+                "DomainName": "{very_long_domain}",
                 "NameServer": ["1.1.1.1"],
                 "IsEnabled": true
             }}]}}
-        }}"#,
-            very_long_domain
+        }}"#
         );
 
         let parse_result: Result<DotNetRulesConfig, _> = serde_json::from_str(&rules_json);
@@ -1451,11 +1430,9 @@ mod tests {
         assert!(aws_config.accounts[0].label.starts_with("migrated_"));
 
         // Should not contain any error messages about character encoding
-        assert!(
-            !messages
-                .iter()
-                .any(|m| m.text.contains("encoding") || m.text.contains("character"))
-        );
+        assert!(!messages
+            .iter()
+            .any(|m| m.text.contains("encoding") || m.text.contains("character")));
     }
 
     #[test]
@@ -1614,9 +1591,7 @@ mod tests {
                     // Should not take more than 5 seconds even for complex patterns
                     assert!(
                         duration < Duration::from_secs(5),
-                        "Migration took too long for pattern '{}': {:?}",
-                        pattern,
-                        duration
+                        "Migration took too long for pattern '{pattern}': {duration:?}"
                     );
 
                     match result {
@@ -1652,7 +1627,7 @@ mod tests {
         let test_cases = vec![
             // Very long alternation that could exhaust memory
             (0..1000)
-                .map(|i| format!("domain{}", i))
+                .map(|i| format!("domain{i}"))
                 .collect::<Vec<_>>()
                 .join("|"),
             // Deeply nested groups
@@ -1688,8 +1663,7 @@ mod tests {
 
                 assert!(
                     duration < Duration::from_secs(2),
-                    "Regex compilation took too long: {:?}",
-                    duration
+                    "Regex compilation took too long: {duration:?}"
                 );
                 assert!(
                     result.is_ok(),
@@ -1728,12 +1702,11 @@ mod tests {
             let rules_json = format!(
                 r#"{{
                 "RulesConfig": {{ "Rules": [{{
-                    "DomainName": "{}",
+                    "DomainName": "{domain}",
                     "NameServer": ["1.1.1.1"],
                     "IsEnabled": true
                 }}]}}
-            }}"#,
-                domain
+            }}"#
             );
 
             if let Ok(rules_config) = serde_json::from_str::<DotNetRulesConfig>(&rules_json) {
@@ -1833,7 +1806,7 @@ mod tests {
                                 });
                                 assert!(has_warning, "Should have warning for port 0");
                             } else {
-                                assert!(port > 0, "Port should be in valid range: {}", port);
+                                assert!(port > 0, "Port should be in valid range: {port}");
                             }
                         }
                     }
@@ -1897,9 +1870,7 @@ mod tests {
                             for ip in ips {
                                 assert!(
                                     ip.is_ipv4() || ip.is_ipv6(),
-                                    "Invalid IP {} for domain {}",
-                                    ip,
-                                    domain
+                                    "Invalid IP {ip} for domain {domain}"
                                 );
                             }
                         }
@@ -2055,8 +2026,7 @@ mod tests {
                                             .any(|m| m.level == MessageLevel::Warning);
                                         if !has_warning {
                                             eprintln!(
-                                                "Warning: Invalid account ID format should generate warning: {}",
-                                                account_id
+                                                "Warning: Invalid account ID format should generate warning: {account_id}"
                                             );
                                         }
                                     }
@@ -2128,8 +2098,7 @@ mod tests {
                 let duration = start.elapsed();
                 assert!(
                     duration < Duration::from_secs(10),
-                    "Large config migration took too long: {:?}",
-                    duration
+                    "Large config migration took too long: {duration:?}"
                 );
 
                 // Should successfully migrate all accounts

@@ -5,13 +5,13 @@ use crate::config::{
 };
 use crate::core::error::ConfigError;
 use crate::ports::ConfigurationStore;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, event::AccessKind};
-use std::collections::{HashSet, hash_map::DefaultHasher};
+use notify::{event::AccessKind, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 pub(crate) type ConfigUpdateSignal = ();
 pub(crate) type ConfigUpdateSender = broadcast::Sender<ConfigUpdateSignal>;
@@ -556,7 +556,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use tokio::time::{Duration, sleep};
+    use tokio::time::{sleep, Duration};
 
     #[derive(Default)]
     struct MockConfigStore {
@@ -682,10 +682,7 @@ mod tests {
             messages
                 .iter()
                 .any(|msg| msg.level == level && msg.text.contains(text_contains)),
-            "Expected message with level {:?} containing '{}', not found in: {:?}",
-            level,
-            text_contains,
-            messages
+            "Expected message with level {level:?} containing '{text_contains}', not found in: {messages:?}"
         );
     }
 
@@ -819,7 +816,7 @@ mod tests {
         assert!(result.is_err());
         match result.err().unwrap() {
             ConfigError::Validation(msg) => assert!(msg.contains("Duplicate AWS account label")),
-            e => panic!("Expected ConfigError::Validation, got {:?}", e),
+            e => panic!("Expected ConfigError::Validation, got {e:?}"),
         }
     }
 
@@ -860,11 +857,9 @@ mod tests {
         );
 
         assert!(mock_store_arc.get_saved_app_config().is_some());
-        assert!(
-            mock_store_arc
-                .get_backed_up_legacy_files()
-                .contains(&legacy_main_path)
-        );
+        assert!(mock_store_arc
+            .get_backed_up_legacy_files()
+            .contains(&legacy_main_path));
     }
 
     #[tokio::test]
@@ -885,7 +880,7 @@ mod tests {
 
         match result.err().unwrap() {
             ConfigError::Validation(msg) => assert!(msg.contains("Duplicate AWS account label")),
-            e => panic!("Expected ConfigError::Validation, got {:?}", e),
+            e => panic!("Expected ConfigError::Validation, got {e:?}"),
         }
     }
 
@@ -965,7 +960,7 @@ mod tests {
             let handle = tokio::spawn(async move {
                 manager_clone
                     .update_app_config(|cfg| {
-                        cfg.logging.level = format!("level-{}", i);
+                        cfg.logging.level = format!("level-{i}");
                         Ok(())
                     })
                     .await
@@ -1143,7 +1138,7 @@ mod tests {
         let max_attempts = 5;
 
         for attempt in 1..=max_attempts {
-            println!("Attempt {} to update config", attempt);
+            println!("Attempt {attempt} to update config");
 
             std::fs::write(&config_path, target_toml_content.clone()).unwrap();
 
@@ -1163,7 +1158,7 @@ mod tests {
                 && current_config.logging.level == "debug"
                 && current_config.server.listen_address == "127.0.0.1:7777"
             {
-                println!("✓ Config successfully updated on attempt {}", attempt);
+                println!("✓ Config successfully updated on attempt {attempt}");
                 config_updated = true;
                 break;
             }
@@ -1171,8 +1166,7 @@ mod tests {
 
         assert!(
             config_updated,
-            "Config should be updated within {} attempts",
-            max_attempts
+            "Config should be updated within {max_attempts} attempts"
         );
     }
     #[tokio::test]

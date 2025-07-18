@@ -1,0 +1,2 @@
+// file: src/windows_manifest.rc
+1 RT_MANIFEST "src/app.manifest"
