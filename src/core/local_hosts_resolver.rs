@@ -5,8 +5,8 @@ use hickory_proto::op::ResponseCode;
 use hickory_proto::rr::rdata::PTR;
 use hickory_proto::rr::{Name, RData, Record, RecordType};
 use notify::{
-    event::AccessKind, Error as NotifyError, Event as NotifyEvent, RecommendedWatcher,
-    RecursiveMode, Watcher,
+    Error as NotifyError, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
+    event::AccessKind,
 };
 use rand::seq::IndexedRandom;
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 

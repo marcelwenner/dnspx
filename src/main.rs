@@ -35,11 +35,11 @@ use core::dns_request_processor::DnsRequestProcessor;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ports::{AppLifecycleManagerPort, AwsVpcInfoProvider, ConfigurationStore};
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 use std::collections::HashMap;
 use std::io::stdout;
 use std::path::PathBuf;
@@ -49,7 +49,7 @@ use tokio::sync::RwLock as TokioRwLock;
 use tracing::{error, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-use tracing_subscriber::{registry::Registry, EnvFilter, FmtSubscriber};
+use tracing_subscriber::{EnvFilter, FmtSubscriber, registry::Registry};
 
 use crate::core::types::MessageLevel;
 

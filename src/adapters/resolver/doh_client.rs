@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 use crate::config::models::{HttpProxyConfig, ProxyAuthenticationType};
 use crate::core::error::ResolveError;
-use crate::dns_protocol::{parse_dns_message, serialize_dns_message, DnsMessage, DnsQuestion};
+use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
 use crate::ports::UpstreamResolver;
 use reqwest::{
-    header::{ACCEPT, CONTENT_TYPE},
     Body, Client, Proxy, StatusCode,
+    header::{ACCEPT, CONTENT_TYPE},
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -1028,8 +1028,10 @@ mod tests {
         };
 
         // Test with malformed URLs
-        let malformed_urls = vec![Url::parse("not-a-valid-url")
-            .unwrap_or_else(|_| Url::parse("https://fallback.test").unwrap())];
+        let malformed_urls = vec![
+            Url::parse("not-a-valid-url")
+                .unwrap_or_else(|_| Url::parse("https://fallback.test").unwrap()),
+        ];
 
         let result = adapter
             .resolve_doh(&question, &malformed_urls, Duration::from_secs(1), None)

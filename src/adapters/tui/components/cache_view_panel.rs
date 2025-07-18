@@ -1,11 +1,11 @@
 use crate::adapters::tui::app::{InputMode as TuiInputMode, TuiApp};
 use hickory_proto::rr::RData;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
-    Frame,
 };
 
 fn format_rdata(rdata: &RData) -> String {

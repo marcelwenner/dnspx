@@ -2,10 +2,10 @@ use crate::core::types::MessageLevel;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
 use tokio::sync::mpsc;
-use tracing::{field::Visit, Event, Level, Subscriber};
+use tracing::{Event, Level, Subscriber, field::Visit};
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 #[derive(Default)]
 struct FieldExtractor {

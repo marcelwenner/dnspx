@@ -728,14 +728,18 @@ mod tests {
         assert!(app_config.local_hosts.is_some());
         let hosts_entries = &app_config.local_hosts.as_ref().unwrap().entries;
         assert_eq!(hosts_entries.get("multi.host.local").unwrap().len(), 2);
-        assert!(hosts_entries
-            .get("multi.host.local")
-            .unwrap()
-            .contains(&IpAddr::from_str("192.168.99.1").unwrap()));
-        assert!(hosts_entries
-            .get("multi.host.local")
-            .unwrap()
-            .contains(&IpAddr::from_str("192.168.99.2").unwrap()));
+        assert!(
+            hosts_entries
+                .get("multi.host.local")
+                .unwrap()
+                .contains(&IpAddr::from_str("192.168.99.1").unwrap())
+        );
+        assert!(
+            hosts_entries
+                .get("multi.host.local")
+                .unwrap()
+                .contains(&IpAddr::from_str("192.168.99.2").unwrap())
+        );
         assert_eq!(hosts_entries.get("alias.host.local").unwrap().len(), 2);
         assert_eq!(
             hosts_entries.get("ipv6.host.local").unwrap(),
@@ -898,14 +902,18 @@ mod tests {
         assert!(app_config.local_hosts.is_some());
         let entries = &app_config.local_hosts.as_ref().unwrap().entries;
         assert_eq!(entries.get("multi.ip.test").unwrap().len(), 2);
-        assert!(entries
-            .get("multi.ip.test")
-            .unwrap()
-            .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
-        assert!(entries
-            .get("multi.ip.test")
-            .unwrap()
-            .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 2))));
+        assert!(
+            entries
+                .get("multi.ip.test")
+                .unwrap()
+                .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))
+        );
+        assert!(
+            entries
+                .get("multi.ip.test")
+                .unwrap()
+                .contains(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 2)))
+        );
         assert_eq!(
             entries.get("single.ip.test").unwrap(),
             &vec![IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))]
@@ -1058,14 +1066,18 @@ mod tests {
         let (config, messages) = migrate(legacy).unwrap();
 
         assert_eq!(config.routing_rules.len(), 2);
-        assert!(config
-            .routing_rules
-            .iter()
-            .any(|r| r.domain_pattern.0.as_str() == "(.*)\\.box"));
-        assert!(config
-            .routing_rules
-            .iter()
-            .any(|r| r.domain_pattern.0.as_str() == "^blun\\.de$"));
+        assert!(
+            config
+                .routing_rules
+                .iter()
+                .any(|r| r.domain_pattern.0.as_str() == "(.*)\\.box")
+        );
+        assert!(
+            config
+                .routing_rules
+                .iter()
+                .any(|r| r.domain_pattern.0.as_str() == "^blun\\.de$")
+        );
 
         assert!(config.local_hosts.is_some());
         let entries = &config.local_hosts.as_ref().unwrap().entries;
@@ -1430,9 +1442,11 @@ mod tests {
         assert!(aws_config.accounts[0].label.starts_with("migrated_"));
 
         // Should not contain any error messages about character encoding
-        assert!(!messages
-            .iter()
-            .any(|m| m.text.contains("encoding") || m.text.contains("character")));
+        assert!(
+            !messages
+                .iter()
+                .any(|m| m.text.contains("encoding") || m.text.contains("character"))
+        );
     }
 
     #[test]

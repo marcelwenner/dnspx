@@ -1,9 +1,9 @@
-use crate::config::models::{AppConfig, DotNetLegacyConfig};
 use crate::config::DEFAULT_CONFIG_FILE_NAME_V2;
+use crate::config::models::{AppConfig, DotNetLegacyConfig};
 use crate::core::error::ConfigError;
 use crate::ports::ConfigurationStore;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -211,7 +211,7 @@ mod tests {
     use crate::core::error::ConfigError;
     use serde::{Deserialize, Serialize};
     use std::fs;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct TestJsonData {

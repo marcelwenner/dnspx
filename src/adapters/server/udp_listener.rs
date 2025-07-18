@@ -1,10 +1,10 @@
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{parse_dns_message, serialize_dns_message, DnsMessage as AppDnsMessage};
+use crate::dns_protocol::{DnsMessage as AppDnsMessage, parse_dns_message, serialize_dns_message};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
 use hickory_proto::op::ResponseCode;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
-use tracing::{error, info, warn, Instrument};
+use tracing::{Instrument, error, info, warn};
 
 pub(crate) async fn run_udp_listener(
     app_lifecycle: Arc<dyn AppLifecycleManagerPort>,

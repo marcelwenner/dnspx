@@ -685,11 +685,13 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
 
         if account_config.discover_services.ec2_instances {
             debug!("Discovering EC2 instances in region {}", region);
-            let mut ec2_filters = vec![Ec2Filter::builder()
-                .name("instance-state-name")
-                .values(InstanceStateName::Running.as_ref())
-                .values(InstanceStateName::Pending.as_ref())
-                .build()];
+            let mut ec2_filters = vec![
+                Ec2Filter::builder()
+                    .name("instance-state-name")
+                    .values(InstanceStateName::Running.as_ref())
+                    .values(InstanceStateName::Pending.as_ref())
+                    .build(),
+            ];
             if !account_config.scan_vpc_ids.is_empty() {
                 ec2_filters.push(
                     Ec2Filter::builder()

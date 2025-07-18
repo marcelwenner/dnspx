@@ -7,11 +7,11 @@ use crate::adapters::tui::components::{
 };
 use crate::core::types::AwsAuthMethod;
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

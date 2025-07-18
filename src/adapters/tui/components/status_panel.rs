@@ -1,10 +1,10 @@
 use crate::adapters::tui::app::{StatusPanelView, TuiApp};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
-    Frame,
 };
 
 pub(crate) fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {

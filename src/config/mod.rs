@@ -47,7 +47,10 @@ pub(crate) fn find_config_file() -> Result<PathBuf, ConfigError> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(dir) = exe_path.parent() {
             let local_path = dir.join(DEFAULT_CONFIG_FILE_NAME_V2);
-            tracing::warn!("Kein Benutzer-Konfig-Verzeichnis gefunden. Fallback-Pfad für neue Konfigurationsdatei: {:?}", local_path);
+            tracing::warn!(
+                "Kein Benutzer-Konfig-Verzeichnis gefunden. Fallback-Pfad für neue Konfigurationsdatei: {:?}",
+                local_path
+            );
             return Ok(local_path);
         }
     }

@@ -1,7 +1,7 @@
 use crate::adapters::aws::profile_utils::{
-    self, create_aws_account_config_from_params, AwsConfigParams,
+    self, AwsConfigParams, create_aws_account_config_from_params,
 };
-use crate::adapters::tui::event::{is_quit_event, AppEvent, EventManager};
+use crate::adapters::tui::event::{AppEvent, EventManager, is_quit_event};
 use crate::adapters::tui::text_utils;
 use crate::adapters::tui::ui;
 use crate::config::models::{AwsAccountConfig, AwsServiceDiscoveryConfig};
@@ -11,12 +11,12 @@ use crate::core::types::{AppStatus, AwsAuthMethod, CliCommand, MessageLevel};
 use crate::ports::{AppLifecycleManagerPort, UserInteractionPort};
 use async_trait::async_trait;
 use hickory_proto::op::ResponseCode;
-use hickory_proto::rr::rdata::{A, AAAA, CNAME};
 use hickory_proto::rr::Name as HickoryName;
 use hickory_proto::rr::RecordType;
+use hickory_proto::rr::rdata::{A, AAAA, CNAME};
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::text::Line;
-use ratatui::Terminal;
 use std::collections::VecDeque;
 use std::io::Stdout;
 use std::str::FromStr;

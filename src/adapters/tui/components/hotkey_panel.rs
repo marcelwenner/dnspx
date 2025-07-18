@@ -1,10 +1,10 @@
 use crate::adapters::tui::app::TuiApp;
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 fn draw_more_indicator_if_needed(

@@ -1,8 +1,8 @@
 use hickory_proto::{
+    ProtoError,
     op::{Message, MessageType, OpCode, Query as HickoryQuery, ResponseCode},
     rr::{DNSClass, Name, RData, Record, RecordType},
     serialize::binary::{BinDecodable, BinEncodable, BinEncoder},
-    ProtoError,
 };
 use std::net::Ipv4Addr;
 use std::str::FromStr;

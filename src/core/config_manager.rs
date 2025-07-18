@@ -5,13 +5,13 @@ use crate::config::{
 };
 use crate::core::error::ConfigError;
 use crate::ports::ConfigurationStore;
-use notify::{event::AccessKind, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::{hash_map::DefaultHasher, HashSet};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, event::AccessKind};
+use std::collections::{HashSet, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 pub(crate) type ConfigUpdateSignal = ();
 pub(crate) type ConfigUpdateSender = broadcast::Sender<ConfigUpdateSignal>;
@@ -556,7 +556,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     #[derive(Default)]
     struct MockConfigStore {
@@ -857,9 +857,11 @@ mod tests {
         );
 
         assert!(mock_store_arc.get_saved_app_config().is_some());
-        assert!(mock_store_arc
-            .get_backed_up_legacy_files()
-            .contains(&legacy_main_path));
+        assert!(
+            mock_store_arc
+                .get_backed_up_legacy_files()
+                .contains(&legacy_main_path)
+        );
     }
 
     #[tokio::test]

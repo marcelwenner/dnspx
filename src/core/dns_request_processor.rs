@@ -3,14 +3,14 @@ use crate::core::error::{DnsProcessingError, ResolveError};
 use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::rule_engine::{ResolutionInstruction, RuleEngine};
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{parse_dns_message, serialize_dns_message, DnsMessage, DnsQuestion};
+use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService, UpstreamResolver};
 use async_trait::async_trait;
 use hickory_proto::op::ResponseCode;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, event, field, instrument, warn, Instrument, Level, Span};
+use tracing::{Instrument, Level, Span, debug, error, event, field, instrument, warn};
 use url::Url;
 
 pub(crate) struct DnsRequestProcessor {
@@ -376,6 +376,7 @@ impl DnsQueryService for DnsRequestProcessor {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    use crate::AppConfig;
     use crate::aws_integration::scanner::DiscoveredAwsNetworkInfo;
     use crate::config::models::{
         AwsAccountConfig, CacheConfig, CliConfig, DefaultResolverConfig, HashableRegex,
@@ -384,7 +385,6 @@ mod integration_tests {
     use crate::core::error::{CliError, ConfigError};
     use crate::core::types::AppStatus;
     use crate::ports::{AwsConfigProvider, StatusReporterPort, UserInteractionPort};
-    use crate::AppConfig;
 
     use hickory_proto::op::ResponseCode;
     use hickory_proto::rr::RecordType;

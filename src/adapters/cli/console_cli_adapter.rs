@@ -507,9 +507,9 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                                 }) => Ok(CliOutput::Message(format!(
                                     "Update failed: {error}. Rollback performed: {rollback_performed}"
                                 ))),
-                                Err(e) => Err(CliError::UpdateFailed(format!(
-                                    "Installation failed: {e}"
-                                ))),
+                                Err(e) => {
+                                    Err(CliError::UpdateFailed(format!("Installation failed: {e}")))
+                                }
                                 _ => Ok(CliOutput::Message(
                                     "Unexpected installation result".to_string(),
                                 )),

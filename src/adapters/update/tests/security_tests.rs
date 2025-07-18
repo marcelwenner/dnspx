@@ -192,14 +192,18 @@ mod tests {
         let validator = SecurityValidator::new(config, client);
 
         assert_eq!(validator.config.trusted_builders.len(), 2);
-        assert!(validator
-            .config
-            .trusted_builders
-            .contains(&"https://github.com/custom/builder".to_string()));
-        assert!(validator
-            .config
-            .trusted_builders
-            .contains(&"https://custom-ci.com".to_string()));
+        assert!(
+            validator
+                .config
+                .trusted_builders
+                .contains(&"https://github.com/custom/builder".to_string())
+        );
+        assert!(
+            validator
+                .config
+                .trusted_builders
+                .contains(&"https://custom-ci.com".to_string())
+        );
     }
 
     #[tokio::test]
@@ -421,14 +425,18 @@ mod tests {
         let validator = SecurityValidator::new(config, client);
 
         assert_eq!(validator.config.trusted_builders.len(), 2);
-        assert!(validator
-            .config
-            .trusted_builders
-            .contains(&"https://github.com/actions".to_string()));
-        assert!(validator
-            .config
-            .trusted_builders
-            .contains(&"https://custom-ci.example.com".to_string()));
+        assert!(
+            validator
+                .config
+                .trusted_builders
+                .contains(&"https://github.com/actions".to_string())
+        );
+        assert!(
+            validator
+                .config
+                .trusted_builders
+                .contains(&"https://custom-ci.example.com".to_string())
+        );
         assert!(validator.config.require_attestations);
         assert_eq!(validator.config.require_slsa_level, 1);
     }
