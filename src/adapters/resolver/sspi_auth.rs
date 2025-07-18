@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SspiAuthState {
+pub(super) enum SspiAuthState {
     Initial,
     NegotiateSent,
     ChallengeReceived,
@@ -18,7 +18,7 @@ pub enum SspiAuthState {
 }
 
 #[derive(Debug)]
-pub struct SspiAuthManager {
+pub(super) struct SspiAuthManager {
     target_spn: String,
     username: Option<String>,
     password: Option<String>,
@@ -308,7 +308,7 @@ mod mock_sspi {
     use super::*;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum SspiAuthState {
+    pub(super) enum SspiAuthState {
         Initial,
         NegotiateSent,
         ChallengeReceived,
@@ -317,7 +317,7 @@ mod mock_sspi {
     }
 
     #[derive(Debug)]
-    pub struct SspiAuthManager;
+    pub(super) struct SspiAuthManager;
 
     impl SspiAuthManager {
         pub fn new(
@@ -369,4 +369,4 @@ mod mock_sspi {
 }
 
 #[cfg(not(windows))]
-pub use mock_sspi::{SspiAuthManager, SspiAuthState};
+pub(super) use mock_sspi::{SspiAuthManager, SspiAuthState};
