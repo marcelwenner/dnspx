@@ -3425,9 +3425,9 @@ dependencies = [
 
 [[package]]
 name = "picky"
-version = "7.0.0-rc.14"
+version = "7.0.0-rc.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "162c4c060a9813dcae344eba16ea9281d1ca022ad733f13142d27b5b495eebc3"
+checksum = "7ed0f61c4ac11274678ad0da95386c6216d6ff898ef98e54aac23d4a853c324c"
 dependencies = [
  "base64 0.22.1",
  "digest",
