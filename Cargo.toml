@@ -28,7 +28,7 @@ debug = false
 
 [dependencies]
 # Async Runtime
-tokio = { version = "1.40", features = ["rt-multi-thread", "net", "time", "fs", "signal", "macros", "sync", "io-util", "io-std"] }
+tokio = { version = "1.47", features = ["rt-multi-thread", "net", "time", "fs", "signal", "macros", "sync", "io-util", "io-std"] }
 tokio-util = "0.7"
 
 # Configuration & Serialization
