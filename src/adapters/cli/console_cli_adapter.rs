@@ -86,7 +86,7 @@ impl ConsoleCliAdapter {
 
         let cancellation_token = app_lifecycle.get_cancellation_token();
 
-        let is_tty = atty::is(atty::Stream::Stdin);
+        let is_tty = is_terminal::IsTerminal::is_terminal(&std::io::stdin());
 
         if !is_tty {
             cancellation_token.cancelled().await;

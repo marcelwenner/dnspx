@@ -48,7 +48,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json",
 clap = { version = "4.5", features = ["derive", "std"], default-features = false }
 thiserror = "2.0"
 inquire = "0.7"
-atty = "0.2"
+is-terminal = "0.4"
 
 # Caching
 moka = { version = "0.12", features = ["future"], default-features = false }
@@ -101,7 +101,7 @@ sha2 = "0.10"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]
-sspi = "0.15.9"
+sspi = "0.16.0"
 picky-asn1 = "0.10"
 
 [build-dependencies]
