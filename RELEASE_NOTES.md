@@ -1,5 +1,38 @@
 # DNSPX Release Notes
 
+## Version 0.9.4 - Security Updates & Windows Improvements
+
+### 🔒 Security & Dependencies
+- **Security Fix**: Replaced unmaintained `atty` with `is-terminal` to resolve security advisories
+- **Security Fix**: Updated `sspi` to v0.16.0 to address Windows SSPI vulnerabilities  
+- **Dependencies**: Updated 43+ packages including AWS SDK, Tokio ecosystem, and other core dependencies
+- **Audit**: Configured `cargo audit` to properly handle acceptable risk exceptions
+
+### 🪟 Windows Improvements
+- Enhanced Windows-specific compatibility and cross-platform support
+- Fixed Windows SSPI compiler warnings and authentication issues
+- Improved Windows manifest and resource handling
+
+### 🔄 Auto-Update System
+- Comprehensive auto-update system with security validation
+- Enhanced asset name matching for GitHub releases
+- Improved update transaction handling and rollback capabilities
+- Better error handling and recovery mechanisms
+
+### 🧹 Code Quality
+- Fixed all clippy warnings across the codebase
+- Enhanced test coverage and reliability
+- Improved code formatting and consistency
+- Better error handling throughout the application
+
+### 📊 Technical Changes
+- Implemented feature gates for optional AWS and TUI dependencies
+- Enhanced build system with Windows-specific optimizations
+- Improved configuration management and validation
+- Better memory management and performance optimizations
+
+---
+
 ## Version 0.9.3 - Platform-Aware Config Directory Resolution
 
 ### Bug Fixes
