@@ -96,7 +96,7 @@ impl MockAwsVpcInfoProvider {
     }
 
     pub(crate) fn set_response(&self, region: &str, operation: &str, response: MockAwsApiResponse) {
-        let key = format!("{}:{}", region, operation);
+        let key = format!("{region}:{operation}");
         self.responses.lock().unwrap().insert(key, response);
     }
 
@@ -121,7 +121,7 @@ impl MockAwsVpcInfoProvider {
         vpc_id: &str,
         zones: HashSet<String>,
     ) {
-        let key = format!("{}:{}", region, vpc_id);
+        let key = format!("{region}:{vpc_id}");
         self.private_zones_responses
             .lock()
             .unwrap()
@@ -164,7 +164,7 @@ impl AwsVpcInfoProvider for MockAwsVpcInfoProvider {
     ) -> Result<Vec<AwsDiscoveredEndpoint>, AwsApiError> {
         self.log_call(&account_config.label, region, "discover_vpc_endpoints");
 
-        let key = format!("{}:discover_vpc_endpoints", region);
+        let key = format!("{region}:discover_vpc_endpoints");
         let response_opt = self.responses.lock().unwrap().get(&key).cloned();
         if let Some(response) = response_opt {
             self.simulate_delay(response.delay_ms).await;
@@ -214,13 +214,13 @@ impl AwsVpcInfoProvider for MockAwsVpcInfoProvider {
             "discover_private_hosted_zones_for_vpc",
         );
 
-        let key = format!("{}:{}", vpc_region, vpc_id);
+        let key = format!("{vpc_region}:{vpc_id}");
         if let Some(zones) = self.private_zones_responses.lock().unwrap().get(&key) {
             Ok(zones.clone())
         } else {
             // Default fallback
             let mut zones = HashSet::new();
-            zones.insert(format!("test.{}.local", vpc_id));
+            zones.insert(format!("test.{vpc_id}.local"));
             Ok(zones)
         }
     }
@@ -289,9 +289,9 @@ impl MockAwsConfigProvider {
 
     fn create_mock_credentials(prefix: &str) -> AwsCredentials {
         Credentials::new(
-            format!("MOCK_{}_ACCESS_KEY", prefix),
-            format!("MOCK_{}_SECRET_KEY", prefix),
-            Some(format!("MOCK_{}_SESSION_TOKEN", prefix)),
+            format!("MOCK_{prefix}_ACCESS_KEY"),
+            format!("MOCK_{prefix}_SECRET_KEY"),
+            Some(format!("MOCK_{prefix}_SESSION_TOKEN")),
             Some(SystemTime::now() + std::time::Duration::from_secs(3600)),
             "MockProvider",
         )
@@ -314,7 +314,7 @@ impl AwsConfigProvider for MockAwsConfigProvider {
         self.call_log
             .lock()
             .unwrap()
-            .push(format!("get_credentials_for_account:{}", profile_name));
+            .push(format!("get_credentials_for_account:{profile_name}"));
 
         {
             let responses = self.credential_responses.lock().unwrap();
@@ -386,7 +386,7 @@ impl AwsConfigProvider for MockAwsConfigProvider {
         self.call_log
             .lock()
             .unwrap()
-            .push(format!("validate_credentials:{}", key));
+            .push(format!("validate_credentials:{key}"));
 
         {
             let responses = self.validation_responses.lock().unwrap();

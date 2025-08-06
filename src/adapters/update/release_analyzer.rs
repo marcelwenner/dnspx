@@ -26,9 +26,8 @@ impl ReleaseAnalyzer {
         body: &str,
         version: &str,
     ) -> Result<ReleaseMetadata, UpdateError> {
-        let version = Version::parse(version).map_err(|e| {
-            UpdateError::InvalidVersion(format!("Invalid version {}: {}", version, e))
-        })?;
+        let version = Version::parse(version)
+            .map_err(|e| UpdateError::InvalidVersion(format!("Invalid version {version}: {e}")))?;
 
         let body_lower = body.to_lowercase();
 

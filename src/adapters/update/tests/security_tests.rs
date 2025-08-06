@@ -66,7 +66,7 @@ mod tests {
 
         for url in allowed_urls {
             let result = validator.validate_url(url);
-            assert!(result.is_ok(), "URL should be allowed: {}", url);
+            assert!(result.is_ok(), "URL should be allowed: {url}");
         }
     }
 
@@ -81,7 +81,7 @@ mod tests {
 
         for url in blocked_urls {
             let result = validator.validate_url(url);
-            assert!(result.is_err(), "URL should be blocked: {}", url);
+            assert!(result.is_err(), "URL should be blocked: {url}");
         }
     }
 
@@ -97,7 +97,7 @@ mod tests {
 
         for url in invalid_urls {
             let result = validator.validate_url(url);
-            assert!(result.is_err(), "Invalid URL should be rejected: {}", url);
+            assert!(result.is_err(), "Invalid URL should be rejected: {url}");
         }
     }
 
@@ -165,8 +165,7 @@ mod tests {
         if let Err(UpdateError::SecurityValidationFailed(msg)) = result {
             assert!(
                 msg.contains("attestation") || msg.contains("attestations"),
-                "Error should mention attestations: {}",
-                msg
+                "Error should mention attestations: {msg}"
             );
         } else {
             panic!("Expected SecurityValidationFailed error");
@@ -351,7 +350,7 @@ mod tests {
                 println!("Network error as expected");
             }
             Err(e) => {
-                panic!("Unexpected error type: {:?}", e);
+                panic!("Unexpected error type: {e:?}");
             }
         }
     }
@@ -387,7 +386,7 @@ mod tests {
             let result = validator
                 .verify_jwt_signature(invalid_jwt, &create_mock_jwks())
                 .await;
-            assert!(result.is_err(), "Invalid JWT should fail: {}", invalid_jwt);
+            assert!(result.is_err(), "Invalid JWT should fail: {invalid_jwt}");
         }
     }
 
@@ -588,15 +587,15 @@ mod tests {
 
         for (jwt, description) in invalid_test_cases {
             let result = validator.verify_jwt_signature(jwt, &mock_jwks).await;
-            assert!(result.is_err(), "Should fail for {}: {}", description, jwt);
+            assert!(result.is_err(), "Should fail for {description}: {jwt}");
 
             match result {
                 Err(crate::core::error::UpdateError::InvalidJwtFormat(_))
                 | Err(crate::core::error::UpdateError::JwtVerificationFailed(_)) => {}
                 Err(e) => {
-                    println!("Unexpected error for {}: {:?}", description, e);
+                    println!("Unexpected error for {description}: {e:?}");
                 }
-                Ok(_) => panic!("Should not succeed for {}", description),
+                Ok(_) => panic!("Should not succeed for {description}"),
             }
         }
     }
@@ -635,7 +634,7 @@ mod tests {
                 println!("Expected failure at GitHub API stage");
             }
             Err(e) => {
-                println!("Workflow failed with: {:?}", e);
+                println!("Workflow failed with: {e:?}");
             }
             Ok(_) => panic!("Should not succeed without proper mocking"),
         }

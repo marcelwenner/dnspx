@@ -127,36 +127,29 @@ mod tests {
         for dns_name in &expected_dns_names {
             let cache_key_a = CacheKey::new(dns_name, RecordType::A);
             let entry = harness.dns_cache.get(&cache_key_a, false).await;
-            assert!(
-                entry.is_some(),
-                "A record for {} should be cached",
-                dns_name
-            );
+            assert!(entry.is_some(), "A record for {dns_name} should be cached");
 
             if let Some(cache_entry) = entry {
                 assert!(
                     !cache_entry.records.is_empty(),
-                    "Should have at least one A record for {}",
-                    dns_name
+                    "Should have at least one A record for {dns_name}"
                 );
 
                 let first_record = &cache_entry.records[0];
                 assert!(
                     first_record.ttl() > 0,
-                    "TTL should be positive for {}",
-                    dns_name
+                    "TTL should be positive for {dns_name}"
                 );
                 assert!(
                     first_record.ttl() <= 60,
-                    "TTL should not exceed scan interval for {}",
-                    dns_name
+                    "TTL should not exceed scan interval for {dns_name}"
                 );
             }
         }
 
         println!("✅ DNS cache population test completed");
         for dns_name in &expected_dns_names {
-            println!("   - Verified cache entry: {}", dns_name);
+            println!("   - Verified cache entry: {dns_name}");
         }
     }
 

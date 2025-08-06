@@ -267,10 +267,7 @@ fn draw_dashboard_view(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
             if let Some(latest) = &update_status.latest_version {
                 lines.push(Line::from(vec![
                     Span::raw("  Latest: "),
-                    Span::styled(
-                        format!("v{}", latest),
-                        Style::default().fg(Color::LightGreen),
-                    ),
+                    Span::styled(format!("v{latest}"), Style::default().fg(Color::LightGreen)),
                 ]));
             }
         } else {

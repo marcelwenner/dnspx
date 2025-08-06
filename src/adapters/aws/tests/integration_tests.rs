@@ -16,13 +16,13 @@ pub(crate) fn create_test_aws_discovered_endpoint(
     service_type: &str,
 ) -> AwsDiscoveredEndpoint {
     AwsDiscoveredEndpoint {
-        service_dns_name: format!("{}.{}.amazonaws.com", service_name, region),
+        service_dns_name: format!("{service_name}.{region}.amazonaws.com"),
         vpc_endpoint_dns_name: None,
         private_ips: vec![IpAddr::from_str(private_ip).unwrap()],
         service_type: service_type.to_string(),
         region: region.to_string(),
         vpc_id: Some("vpc-test123".to_string()),
-        comment: Some(format!("Test {} endpoint", service_type)),
+        comment: Some(format!("Test {service_type} endpoint")),
     }
 }
 
@@ -69,10 +69,7 @@ pub(crate) async fn verify_dns_cache_contains_entries(
         let cache_key = CacheKey::new(dns_name, RecordType::A);
         let entry = cache.get(&cache_key, false).await;
         if entry.is_none() {
-            return Err(format!(
-                "Expected DNS cache entry for {} not found",
-                dns_name
-            ));
+            return Err(format!("Expected DNS cache entry for {dns_name} not found"));
         }
     }
     Ok(())

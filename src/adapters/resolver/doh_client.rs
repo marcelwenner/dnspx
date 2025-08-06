@@ -101,8 +101,7 @@ impl DohClientAdapter {
                 "http" | "https" => {}
                 invalid_scheme => {
                     return Err(ResolveError::HttpProxy(format!(
-                        "Unsupported proxy URL scheme '{}'. Only 'http' and 'https' are supported: {}",
-                        invalid_scheme, proxy_url_str
+                        "Unsupported proxy URL scheme '{invalid_scheme}'. Only 'http' and 'https' are supported: {proxy_url_str}"
                     )));
                 }
             }
@@ -113,8 +112,7 @@ impl DohClientAdapter {
                 ProxyAuthenticationType::Basic => {
                     let mut proxy = Proxy::all(proxy_url_str).map_err(|e| {
                         ResolveError::HttpProxy(format!(
-                            "Failed to create proxy from URL {}: {}",
-                            proxy_url_str, e
+                            "Failed to create proxy from URL {proxy_url_str}: {e}"
                         ))
                     })?;
                     if let (Some(user), Some(pass)) = (&proxy_conf.username, &proxy_conf.password) {
@@ -125,8 +123,7 @@ impl DohClientAdapter {
                 ProxyAuthenticationType::None => {
                     let proxy = Proxy::all(proxy_url_str).map_err(|e| {
                         ResolveError::HttpProxy(format!(
-                            "Failed to create proxy from URL {}: {}",
-                            proxy_url_str, e
+                            "Failed to create proxy from URL {proxy_url_str}: {e}"
                         ))
                     })?;
                     client_builder = client_builder.proxy(proxy);
@@ -134,8 +131,7 @@ impl DohClientAdapter {
                 ProxyAuthenticationType::Ntlm | ProxyAuthenticationType::WindowsAuth => {
                     let host_res = proxy_conf.url.host_str().ok_or_else(|| {
                         ResolveError::Configuration(format!(
-                            "Proxy URL for {:?} has no host",
-                            proxy_auth_type
+                            "Proxy URL for {proxy_auth_type:?} has no host"
                         ))
                     });
                     match host_res {
@@ -201,9 +197,9 @@ impl DohClientAdapter {
             }
         }
 
-        let http_client = client_builder.build().map_err(|e| {
-            ResolveError::HttpProxy(format!("Failed to build reqwest client: {}", e))
-        })?;
+        let http_client = client_builder
+            .build()
+            .map_err(|e| ResolveError::HttpProxy(format!("Failed to build reqwest client: {e}")))?;
 
         Ok(Self {
             http_client,
@@ -347,8 +343,7 @@ impl DohClientAdapter {
                     }
                 }
                 return Err(ResolveError::HttpProxy(format!(
-                    "Proxy authentication failed after {} attempts for {}",
-                    MAX_AUTH_ATTEMPTS, url
+                    "Proxy authentication failed after {MAX_AUTH_ATTEMPTS} attempts for {url}"
                 )));
             }
 
@@ -434,7 +429,7 @@ impl DohClientAdapter {
             };
 
             let final_request = current_request_builder.build().map_err(|e| {
-                ResolveError::HttpProxy(format!("Failed to build DoH request: {}", e))
+                ResolveError::HttpProxy(format!("Failed to build DoH request: {e}"))
             })?;
 
             let response_result =
@@ -492,8 +487,7 @@ impl DohClientAdapter {
                             }
                         }
                         return Err(ResolveError::HttpProxy(format!(
-                            "Proxy authentication required (407) for {}",
-                            url
+                            "Proxy authentication required (407) for {url}"
                         )));
                     }
 
@@ -508,14 +502,13 @@ impl DohClientAdapter {
                         );
                         return Err(ResolveError::UpstreamServer {
                             server: url.to_string(),
-                            details: format!("HTTP status {}", status),
+                            details: format!("HTTP status {status}"),
                         });
                     }
 
                     let response_body_bytes = response.bytes().await.map_err(|e| {
                         ResolveError::Network(format!(
-                            "Failed to read DoH response body from {}: {}",
-                            url, e
+                            "Failed to read DoH response body from {url}: {e}"
                         ))
                     })?;
 
@@ -535,8 +528,7 @@ impl DohClientAdapter {
                         }
                     }
                     return Err(ResolveError::Network(format!(
-                        "DoH request to {} failed: {}",
-                        url, e
+                        "DoH request to {url} failed: {e}"
                     )));
                 }
                 Err(_timeout) => {
@@ -642,8 +634,7 @@ impl UpstreamResolver for DohClientAdapter {
                             response_msg.id()
                         );
                         last_error = Some(ResolveError::InvalidResponse(format!(
-                            "Mismatched ID from {} (DoH)",
-                            url
+                            "Mismatched ID from {url} (DoH)"
                         )));
                     }
                 }
@@ -1254,7 +1245,7 @@ mod integration_tests {
 
             handles.push(tokio::spawn(async move {
                 let question = DnsQuestion {
-                    name: format!("test{}.example.com", i),
+                    name: format!("test{i}.example.com"),
                     record_type: RecordType::A,
                     class: hickory_proto::rr::DNSClass::IN,
                 };
@@ -1356,7 +1347,7 @@ mod integration_tests {
                 // Server error due to timeout. Also valid
             }
             other => {
-                panic!("Unexpected error type for timeout test: {:?}", other);
+                panic!("Unexpected error type for timeout test: {other:?}");
             }
         }
     }
@@ -1385,8 +1376,7 @@ mod integration_tests {
                     DohClientAdapter::new(Duration::from_secs(5), Some(proxy_config)).await;
                 assert!(
                     result.is_err(),
-                    "Should reject invalid proxy URL: {}",
-                    invalid_url
+                    "Should reject invalid proxy URL: {invalid_url}"
                 );
             }
         }
@@ -1474,8 +1464,7 @@ mod integration_tests {
             ResolveError::Network(msg) => {
                 assert!(
                     msg.contains("failed") || msg.contains("connect") || msg.contains("resolve"),
-                    "Network error should contain relevant error message, got: {}",
-                    msg
+                    "Network error should contain relevant error message, got: {msg}"
                 );
             }
             ResolveError::Timeout { domain, .. } => {
@@ -1484,7 +1473,7 @@ mod integration_tests {
                     "Timeout should reference the correct domain"
                 );
             }
-            other => panic!("Expected Network or Timeout error, got: {:?}", other),
+            other => panic!("Expected Network or Timeout error, got: {other:?}"),
         }
     }
 
@@ -1526,11 +1515,10 @@ mod integration_tests {
             ResolveError::Network(msg) => {
                 assert!(
                     msg.contains("timeout") || msg.contains("failed") || msg.contains("connect"),
-                    "Network error should contain relevant message, got: {}",
-                    msg
+                    "Network error should contain relevant message, got: {msg}"
                 );
             }
-            other => panic!("Expected timeout or network error, got: {:?}", other),
+            other => panic!("Expected timeout or network error, got: {other:?}"),
         }
     }
 
@@ -1568,7 +1556,7 @@ mod integration_tests {
                 assert_eq!(questions[0].query_type(), RecordType::A);
             }
             Err(e) => {
-                println!("Network error occurred (acceptable in test env): {:?}", e);
+                println!("Network error occurred (acceptable in test env): {e:?}");
             }
         }
     }
@@ -1604,12 +1592,11 @@ mod integration_tests {
             ResolveError::UpstreamServer { details, .. } => {
                 assert!(
                     details.contains("HTTP status") || details.contains("status"),
-                    "Should be an HTTP status error, got: {}",
-                    details
+                    "Should be an HTTP status error, got: {details}"
                 );
             }
             ResolveError::Network(_) => {}
-            other => panic!("Unexpected error type: {:?}", other),
+            other => panic!("Unexpected error type: {other:?}"),
         }
     }
 
@@ -1697,7 +1684,7 @@ mod integration_tests {
             let client_clone = Arc::clone(&client);
             handles.push(tokio::spawn(async move {
                 let question = DnsQuestion {
-                    name: format!("nonexistent{}.invalid", i),
+                    name: format!("nonexistent{i}.invalid"),
                     record_type: RecordType::A,
                     class: hickory_proto::rr::DNSClass::IN,
                 };
@@ -1775,14 +1762,13 @@ mod performance_tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed < Duration::from_millis(500),
-            "Client creation should be fast: {:?}",
-            elapsed
+            "Client creation should be fast: {elapsed:?}"
         );
     }
 
     #[tokio::test]
     async fn test_bypass_logic_performance() {
-        let bypass_list = (0..100).map(|i| format!("domain{}.com", i)).collect();
+        let bypass_list = (0..100).map(|i| format!("domain{i}.com")).collect();
 
         let adapter = create_adapter_for_bypass_test_async(Some(bypass_list)).await;
 
@@ -1796,8 +1782,7 @@ mod performance_tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed < Duration::from_millis(100),
-            "Bypass checks should be fast: {:?}",
-            elapsed
+            "Bypass checks should be fast: {elapsed:?}"
         );
     }
 }

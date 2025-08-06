@@ -383,7 +383,7 @@ mod tests {
                 );
             }
             Err(e) => {
-                println!("Live DNS test skipped due to network error: {:?}", e);
+                println!("Live DNS test skipped due to network error: {e:?}");
                 // Don't fail the test in case of network issues
             }
         }

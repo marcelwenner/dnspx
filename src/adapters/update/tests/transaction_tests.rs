@@ -105,7 +105,7 @@ mod tests {
             Err(err) => {
                 let err_msg = err.to_string();
                 if !err_msg.contains("Health check") && !err_msg.contains("health check") {
-                    panic!("Unexpected error during commit: {}", err);
+                    panic!("Unexpected error during commit: {err}");
                 }
             }
         }
@@ -124,7 +124,7 @@ mod tests {
             Err(err) => {
                 let err_msg = err.to_string();
                 if !err_msg.contains("Health check") && !err_msg.contains("health check") {
-                    panic!("Unexpected error during rollback: {}", err);
+                    panic!("Unexpected error during rollback: {err}");
                 }
             }
         }

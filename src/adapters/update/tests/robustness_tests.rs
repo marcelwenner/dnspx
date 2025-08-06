@@ -77,8 +77,7 @@ mod tests {
                         || error_msg.contains("network")
                         || error_msg.contains("request")
                         || error_msg.contains("repository"),
-                    "Error should indicate network/repository issue: {}",
-                    error_msg
+                    "Error should indicate network/repository issue: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpToDate) => {
@@ -122,8 +121,7 @@ mod tests {
                         || error_msg.contains("download")
                         || error_msg.contains("File system")
                         || error_msg.contains("backup"),
-                    "Error should indicate checksum failure or backup issue: {}",
-                    error_msg
+                    "Error should indicate checksum failure or backup issue: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -136,8 +134,7 @@ mod tests {
                         || error.contains("integrity")
                         || error.contains("download")
                         || error.contains("verification"),
-                    "Error should indicate checksum failure: {}",
-                    error
+                    "Error should indicate checksum failure: {error}"
                 );
 
                 assert!(rollback_performed || error.contains("rollback"));
@@ -175,8 +172,7 @@ mod tests {
                         || error_msg.contains("No such file")
                         || error_msg.contains("File system")
                         || error_msg.contains("backup"),
-                    "Error should indicate disk space, permission, or backup issue: {}",
-                    error_msg
+                    "Error should indicate disk space, permission, or backup issue: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -191,8 +187,7 @@ mod tests {
                         || error.contains("access")
                         || error.contains("File system")
                         || error.contains("backup"),
-                    "Error should indicate disk space or backup issue: {}",
-                    error
+                    "Error should indicate disk space or backup issue: {error}"
                 );
             }
             Ok(_) => {}
@@ -221,8 +216,7 @@ mod tests {
                         || error_msg.contains("not found")
                         || error_msg.contains("available")
                         || error_msg.contains("exist"),
-                    "Error should indicate backup unavailability: {}",
-                    error_msg
+                    "Error should indicate backup unavailability: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -235,8 +229,7 @@ mod tests {
                         || error.contains("rollback")
                         || error.contains("not found")
                         || error.contains("exist"),
-                    "Error should indicate backup issue: {}",
-                    error
+                    "Error should indicate backup issue: {error}"
                 );
             }
             Ok(_) => {
@@ -318,8 +311,7 @@ mod tests {
                         || error_msg.contains("create")
                         || error_msg.contains("write")
                         || error_msg.contains("File system"),
-                    "Error should indicate permission or file system issue: {}",
-                    error_msg
+                    "Error should indicate permission or file system issue: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -333,8 +325,7 @@ mod tests {
                         || error.contains("create")
                         || error.contains("write")
                         || error.contains("File system"),
-                    "Error should indicate permission or file system issue: {}",
-                    error
+                    "Error should indicate permission or file system issue: {error}"
                 );
             }
             Ok(_) => {
@@ -368,7 +359,7 @@ mod tests {
                 download_url: "https://httpbin.org/bytes/1024".to_string(),
                 checksum: Some("checksum123".to_string()),
                 signature_url: None,
-                release_notes: Some(format!("Test with invalid version: {}", invalid_version)),
+                release_notes: Some(format!("Test with invalid version: {invalid_version}")),
                 breaking_changes: false,
             };
 
@@ -386,9 +377,7 @@ mod tests {
                             || error_msg.contains("download")
                             || error_msg.contains("File system")
                             || error_msg.contains("backup"),
-                        "Error should indicate version format issue for '{}': {}",
-                        invalid_version,
-                        error_msg
+                        "Error should indicate version format issue for '{invalid_version}': {error_msg}"
                     );
                 }
                 Ok(UpdateResult::UpdateFailed {
@@ -403,9 +392,7 @@ mod tests {
                             || error.contains("download")
                             || error.contains("File system")
                             || error.contains("backup"),
-                        "Error should indicate version issue for '{}': {}",
-                        invalid_version,
-                        error
+                        "Error should indicate version issue for '{invalid_version}': {error}"
                     );
                 }
                 Ok(_) => {
@@ -457,9 +444,7 @@ mod tests {
                             || error_msg.contains("request")
                             || error_msg.contains("File system")
                             || error_msg.contains("backup"),
-                        "Error should indicate URL issue for '{}': {}",
-                        malicious_url,
-                        error_msg
+                        "Error should indicate URL issue for '{malicious_url}': {error_msg}"
                     );
                 }
                 Ok(UpdateResult::UpdateFailed {
@@ -474,9 +459,7 @@ mod tests {
                             || error.contains("protocol")
                             || error.contains("File system")
                             || error.contains("backup"),
-                        "Error should indicate URL issue for '{}': {}",
-                        malicious_url,
-                        error
+                        "Error should indicate URL issue for '{malicious_url}': {error}"
                     );
                 }
                 Ok(_) => {
@@ -523,8 +506,7 @@ mod tests {
                         || error_msg.contains("content")
                         || error_msg.contains("File system")
                         || error_msg.contains("backup"),
-                    "Error should indicate size limit issue: {}",
-                    error_msg
+                    "Error should indicate size limit issue: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -539,8 +521,7 @@ mod tests {
                         || error.contains("content")
                         || error.contains("File system")
                         || error.contains("backup"),
-                    "Error should indicate size limit issue: {}",
-                    error
+                    "Error should indicate size limit issue: {error}"
                 );
             }
             Ok(_) => {
@@ -590,8 +571,7 @@ mod tests {
                         || error_msg.contains("request")
                         || error_msg.contains("File system")
                         || error_msg.contains("backup"),
-                    "Error should indicate timeout/interruption: {}",
-                    error_msg
+                    "Error should indicate timeout/interruption: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -605,8 +585,7 @@ mod tests {
                         || error.contains("request")
                         || error.contains("File system")
                         || error.contains("backup"),
-                    "Error should indicate timeout: {}",
-                    error
+                    "Error should indicate timeout: {error}"
                 );
             }
             Ok(_) => {
@@ -651,14 +630,12 @@ mod tests {
                         || error_msg.contains("download")
                         || error_msg.contains("File system")
                         || error_msg.contains("backup"),
-                    "Error message should be specific about the problem: {}",
-                    error_msg
+                    "Error message should be specific about the problem: {error_msg}"
                 );
 
                 assert!(
                     error_msg.len() > 20,
-                    "Error message should be detailed enough to be actionable: {}",
-                    error_msg
+                    "Error message should be detailed enough to be actionable: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -673,8 +650,7 @@ mod tests {
                         || error.contains("download")
                         || error.contains("File system")
                         || error.contains("backup"),
-                    "Error should describe the specific problem: {}",
-                    error
+                    "Error should describe the specific problem: {error}"
                 );
             }
             Ok(_) => {
@@ -719,8 +695,7 @@ mod tests {
                         || error_msg.contains("validation")
                         || error_msg.contains("File system")
                         || error_msg.contains("backup"),
-                    "Error should indicate security policy violation: {}",
-                    error_msg
+                    "Error should indicate security policy violation: {error_msg}"
                 );
             }
             Ok(UpdateResult::UpdateFailed {
@@ -734,8 +709,7 @@ mod tests {
                         || error.contains("required")
                         || error.contains("File system")
                         || error.contains("backup"),
-                    "Error should indicate security policy violation: {}",
-                    error
+                    "Error should indicate security policy violation: {error}"
                 );
             }
             Ok(_) => {
@@ -761,7 +735,7 @@ mod tests {
         match result {
             Ok(UpdateResult::UpToDate) => {}
             other => {
-                panic!("Expected UpToDate when updates disabled, got: {:?}", other);
+                panic!("Expected UpToDate when updates disabled, got: {other:?}");
             }
         }
     }

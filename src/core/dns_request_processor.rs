@@ -734,12 +734,12 @@ mod integration_tests {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     TestResolveError::Timeout { server, duration } => {
-                        write!(f, "Test timeout for server {} after {:?}", server, duration)
+                        write!(f, "Test timeout for server {server} after {duration:?}")
                     }
                     TestResolveError::Configuration(msg) => {
-                        write!(f, "Test configuration error: {}", msg)
+                        write!(f, "Test configuration error: {msg}")
                     }
-                    TestResolveError::Network(msg) => write!(f, "Test network error: {}", msg),
+                    TestResolveError::Network(msg) => write!(f, "Test network error: {msg}"),
                 }
             }
         }
@@ -1039,20 +1039,20 @@ mod integration_tests {
             domain: &str,
         ) -> Result<DnsMessage, String> {
             let query_msg = DnsMessage::new_query(12345, domain, RecordType::A)
-                .map_err(|e| format!("Failed to create query: {}", e))?;
+                .map_err(|e| format!("Failed to create query: {e}"))?;
 
             let query_bytes = serialize_dns_message(&query_msg)
-                .map_err(|e| format!("Failed to serialize query: {}", e))?;
+                .map_err(|e| format!("Failed to serialize query: {e}"))?;
 
             let client_addr: SocketAddr = "127.0.0.1:54321".parse().unwrap();
 
             let response_bytes = processor
                 .process_query(query_bytes, client_addr, ProtocolType::Udp)
                 .await
-                .map_err(|e| format!("Failed to process query: {}", e))?;
+                .map_err(|e| format!("Failed to process query: {e}"))?;
 
             let response_msg = parse_dns_message(&response_bytes)
-                .map_err(|e| format!("Failed to parse response: {}", e))?;
+                .map_err(|e| format!("Failed to parse response: {e}"))?;
 
             Ok(response_msg)
         }

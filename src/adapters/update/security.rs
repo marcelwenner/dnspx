@@ -166,7 +166,7 @@ impl SecurityValidator {
             .header("User-Agent", format!("dnspx/{}", env!("CARGO_PKG_VERSION")))
             .send()
             .await
-            .map_err(|e| UpdateError::JwksFetchFailed(format!("Failed to fetch JWKS: {}", e)))?;
+            .map_err(|e| UpdateError::JwksFetchFailed(format!("Failed to fetch JWKS: {e}")))?;
 
         if !response.status().is_success() {
             return Err(UpdateError::JwksFetchFailed(format!(
@@ -175,9 +175,10 @@ impl SecurityValidator {
             )));
         }
 
-        let jwks: GitHubJwks = response.json().await.map_err(|e| {
-            UpdateError::JwksFetchFailed(format!("Failed to parse JWKS JSON: {}", e))
-        })?;
+        let jwks: GitHubJwks = response
+            .json()
+            .await
+            .map_err(|e| UpdateError::JwksFetchFailed(format!("Failed to parse JWKS JSON: {e}")))?;
 
         debug!("Successfully fetched JWKS with {} keys", jwks.keys.len());
         Ok(jwks)
@@ -230,7 +231,7 @@ impl SecurityValidator {
         debug!("Verifying JWT signature for attestation");
 
         let header = decode_header(jwt_token).map_err(|e| {
-            UpdateError::InvalidJwtFormat(format!("Failed to decode JWT header: {}", e))
+            UpdateError::InvalidJwtFormat(format!("Failed to decode JWT header: {e}"))
         })?;
 
         let kid = header.kid.ok_or_else(|| {
@@ -241,8 +242,7 @@ impl SecurityValidator {
 
         let jwk = jwks.keys.iter().find(|k| k.key_id == kid).ok_or_else(|| {
             UpdateError::JwtVerificationFailed(format!(
-                "No matching key found for kid '{}' in JWKS",
-                kid
+                "No matching key found for kid '{kid}' in JWKS"
             ))
         })?;
 
@@ -258,8 +258,7 @@ impl SecurityValidator {
         let decoding_key =
             DecodingKey::from_rsa_components(&jwk.modulus, &jwk.exponent).map_err(|e| {
                 UpdateError::JwtVerificationFailed(format!(
-                    "Failed to create RSA key from JWK: {}",
-                    e
+                    "Failed to create RSA key from JWK: {e}"
                 ))
             })?;
 
@@ -270,8 +269,7 @@ impl SecurityValidator {
         let token_data = decode::<serde_json::Value>(jwt_token, &decoding_key, &validation)
             .map_err(|e| {
                 UpdateError::JwtVerificationFailed(format!(
-                    "JWT signature verification failed: {}",
-                    e
+                    "JWT signature verification failed: {e}"
                 ))
             })?;
 
@@ -346,7 +344,7 @@ impl SecurityValidator {
     ) -> Result<Vec<GitHubAttestation>, UpdateError> {
         debug!("Fetching attestations for {} from repo {}", filename, repo);
 
-        let url = format!("https://api.github.com/repos/{}/attestations", repo);
+        let url = format!("https://api.github.com/repos/{repo}/attestations");
 
         let response = self
             .http_client
@@ -415,13 +413,12 @@ impl SecurityValidator {
 
         let payload_str = serde_json::to_string(&verified_payload).map_err(|e| {
             UpdateError::SecurityValidationFailed(format!(
-                "Failed to serialize verified JWT payload: {}",
-                e
+                "Failed to serialize verified JWT payload: {e}"
             ))
         })?;
 
         let provenance: SlsaProvenance = serde_json::from_str(&payload_str).map_err(|e| {
-            UpdateError::SecurityValidationFailed(format!("Failed to parse SLSA provenance: {}", e))
+            UpdateError::SecurityValidationFailed(format!("Failed to parse SLSA provenance: {e}"))
         })?;
 
         debug!("SLSA provenance type: {}", provenance.type_);
@@ -454,8 +451,7 @@ impl SecurityValidator {
 
         if !subject_found {
             return Err(UpdateError::SecurityValidationFailed(format!(
-                "File {} not found in attestation subjects",
-                filename
+                "File {filename} not found in attestation subjects"
             )));
         }
 
@@ -576,8 +572,7 @@ impl SecurityValidator {
 
             if !is_allowed {
                 return Err(UpdateError::SecurityValidationFailed(format!(
-                    "Domain not in allowlist: {}",
-                    host
+                    "Domain not in allowlist: {host}"
                 )));
             }
         }

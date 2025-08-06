@@ -229,8 +229,8 @@ mod tests {
         let mut endpoints = Vec::new();
         for i in 0..100 {
             endpoints.push(crate::adapters::aws::types::AwsDiscoveredEndpoint {
-                service_dns_name: format!("service-{}.us-east-1.amazonaws.com", i),
-                vpc_endpoint_dns_name: Some(format!("vpce-{}.us-east-1.vpce.amazonaws.com", i)),
+                service_dns_name: format!("service-{i}.us-east-1.amazonaws.com"),
+                vpc_endpoint_dns_name: Some(format!("vpce-{i}.us-east-1.vpce.amazonaws.com")),
                 private_ips: vec![format!("10.0.{}.{}", i / 256, i % 256).parse().unwrap()],
                 service_type: if i % 2 == 0 {
                     "EC2".to_string()
@@ -239,7 +239,7 @@ mod tests {
                 },
                 region: "us-east-1".to_string(),
                 vpc_id: Some("vpc-test123".to_string()),
-                comment: Some(format!("Bulk test endpoint {}", i)),
+                comment: Some(format!("Bulk test endpoint {i}")),
             });
         }
 

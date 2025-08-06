@@ -1,6 +1,6 @@
 [package]
 name = "dnspx"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -103,6 +103,9 @@ sha2 = "0.10"
 [target.'cfg(windows)'.dependencies]
 sspi = "0.15.9"
 picky-asn1 = "0.10"
+
+[build-dependencies]
+embed-resource = "2.4"
 
 [dev-dependencies]
 tokio-test = "0.4"

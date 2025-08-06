@@ -726,8 +726,7 @@ mod tests {
 
         assert!(
             found_ips_over_time.len() > 1,
-            "Random strategy should pick different IPs over time. Found: {:?}",
-            found_ips_over_time
+            "Random strategy should pick different IPs over time. Found: {found_ips_over_time:?}"
         );
         for found_ip in found_ips_over_time {
             assert!(
@@ -1012,8 +1011,7 @@ mod tests {
         assert_eq!(parsed.len(), 1000);
         assert!(
             duration < Duration::from_millis(100),
-            "Parsing took too long: {:?}",
-            duration
+            "Parsing took too long: {duration:?}"
         );
     }
 

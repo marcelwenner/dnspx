@@ -94,14 +94,13 @@ impl UpdateTransaction {
 
             move_op.to_dest(&current_binary_path).map_err(|e| {
                 UpdateError::InstallationFailed(format!(
-                    "Failed to replace binary using self_update: {}",
-                    e
+                    "Failed to replace binary using self_update: {e}"
                 ))
             })
         })
         .await
         .map_err(|e| {
-            UpdateError::InstallationFailed(format!("Binary replacement task failed: {}", e))
+            UpdateError::InstallationFailed(format!("Binary replacement task failed: {e}"))
         })??;
 
         if health_check_enabled {
@@ -144,7 +143,7 @@ impl UpdateTransaction {
 
         if self.config.health_check_enabled {
             self.health_check().await.map_err(|e| {
-                UpdateError::RollbackFailed(format!("Health check failed after rollback: {}", e))
+                UpdateError::RollbackFailed(format!("Health check failed after rollback: {e}"))
             })?;
         }
 
@@ -163,7 +162,7 @@ impl UpdateTransaction {
                 .arg("--version")
                 .output()
                 .map_err(|e| {
-                    UpdateError::InstallationFailed(format!("Health check failed: {}", e))
+                    UpdateError::InstallationFailed(format!("Health check failed: {e}"))
                 })?;
 
             if !output.status.success() {
