@@ -401,7 +401,7 @@ jobs:
 
     - name: Create issue for stale exceptions
       if: env.STALE_COUNT != '0'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
           const fs = require('fs');
@@ -1392,7 +1392,7 @@ jobs:
 
     - name: Create issue on security failures
       if: needs.vulnerability-scan.result == 'failure'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
           const title = `Security Audit Failed - ${new Date().toISOString().split('T')[0]}`;
