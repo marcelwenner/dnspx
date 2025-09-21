@@ -26,6 +26,8 @@ pub(crate) enum ResolutionInstruction {
     Allow,
     ResolveLocal,
     UseDefaultResolver,
+    Refuse,
+    Servfail,
 }
 
 pub(crate) struct RuleEngine {
@@ -116,6 +118,7 @@ impl RuleEngine {
                     RuleAction::Block => return Some(ResolutionInstruction::Block),
                     RuleAction::Allow => return Some(ResolutionInstruction::Allow),
                     RuleAction::ResolveLocal => return Some(ResolutionInstruction::ResolveLocal),
+                    RuleAction::Refuse => return Some(ResolutionInstruction::Refuse),
                 }
             }
         }
@@ -538,6 +541,27 @@ mod tests {
                 .determine_resolution_instruction(&question)
                 .await;
             assert_matches!(result, Some(ResolutionInstruction::Allow));
+        }
+
+        #[tokio::test]
+        async fn test_rule_engine_refuse_action() {
+            let rule = create_rule_config(
+                "refuse_rule",
+                "^refuseme\\.com$",
+                RuleAction::Refuse,
+                None,
+                false,
+                ResolverStrategy::First,
+                500,
+            );
+            let app_config = create_app_config(vec![rule], None, None);
+            let rule_engine = RuleEngine::new(Arc::new(RwLock::new(app_config)));
+            let question = create_test_question("refuseme.com", RecordType::A);
+
+            let result = rule_engine
+                .determine_resolution_instruction(&question)
+                .await;
+            assert_matches!(result, Some(ResolutionInstruction::Refuse));
         }
 
         #[tokio::test]

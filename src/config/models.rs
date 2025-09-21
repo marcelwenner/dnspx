@@ -205,6 +205,18 @@ pub(crate) struct AppConfig {
     pub update: Option<UpdateConfig>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) enum UnmatchedQueryBehavior {
+    #[default]
+    UseDefaultResolver,
+    Refuse,
+    Servfail,
+}
+
+fn default_unmatched_behavior() -> UnmatchedQueryBehavior {
+    UnmatchedQueryBehavior::UseDefaultResolver
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ServerConfig {
     #[serde(default = "default_listen_address")]
@@ -214,6 +226,8 @@ pub(crate) struct ServerConfig {
     pub network_whitelist: Option<Vec<IpNetwork>>,
     #[serde(with = "humantime_serde", default = "default_query_timeout")]
     pub default_query_timeout: Duration,
+    #[serde(default = "default_unmatched_behavior")]
+    pub unmatched_query_behavior: UnmatchedQueryBehavior,
 }
 
 fn default_listen_address() -> String {
@@ -233,6 +247,7 @@ impl Default for ServerConfig {
             protocols: default_protocols(),
             network_whitelist: None,
             default_query_timeout: default_query_timeout(),
+            unmatched_query_behavior: default_unmatched_behavior(),
         }
     }
 }
@@ -279,6 +294,7 @@ pub(crate) enum RuleAction {
     Block,
     Allow,
     ResolveLocal,
+    Refuse,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

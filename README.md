@@ -154,7 +154,7 @@ serve_stale_max_ttl = "1h"          # Max age of stale entry to serve
 # [[routing_rules]]
 # name = "Block Ads"
 # domain_pattern = "(^|\\.)adservice\\.google\\.com$" # Regex pattern
-# action = "Block" # "Forward", "Block", "Allow", "ResolveLocal"
+# action = "Block" # "Forward", "Block", "Allow", "ResolveLocal", "Refuse"
 # invert_match = false # Optional: if true, rule applies to non-matching domains
 
 # [[routing_rules]]
@@ -220,11 +220,12 @@ status_refresh_interval_secs = 5    # TUI status panel refresh interval
 
 ### Key Configuration Parameters:
 *   **`server.listen_address`**: IP and port DNSPX listens on (e.g., `0.0.0.0:53`).
+*   **`server.unmatched_query_behavior`**: Controls how unmatched domains are handled (`UseDefaultResolver`, `Refuse`, `Servfail`).
 *   **`default_resolver.nameservers`**: List of upstream DNS servers (IP:Port or DoH URLs) used if no specific rule matches.
 *   **`routing_rules`**: An array of rules. Each rule has:
     *   `name`: A descriptive name.
     *   `domain_pattern`: A regex pattern to match domain names.
-    *   `action`: What to do if the pattern matches (`Forward`, `Block`, `Allow`, `ResolveLocal`).
+    *   `action`: What to do if the pattern matches (`Forward`, `Block`, `Allow`, `ResolveLocal`, `Refuse`). Use `Refuse` to reply with REFUSED and force clients to try their secondary resolver.
     *   `nameservers` (for `Forward`): Specific upstreams for this rule.
 *   **`cache`**: Configures caching behavior (TTL, capacity).
 *   **`updates`**: Configures automatic update checking and installation.
@@ -375,4 +376,3 @@ Please follow standard GitHub Fork & Pull Request workflows. Ensure your code:
 - Passes all **334 tests** with `cargo test`
 - Passes linting with `cargo clippy --all-targets --all-features -- -D warnings`
 - Includes appropriate test coverage for new functionality
-

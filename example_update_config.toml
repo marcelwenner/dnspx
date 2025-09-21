@@ -4,6 +4,8 @@
 listen_address = "0.0.0.0:53"
 protocols = ["Udp", "Tcp"]
 default_query_timeout = "500ms"
+# Options: UseDefaultResolver, Refuse, Servfail
+unmatched_query_behavior = "UseDefaultResolver"
 
 [default_resolver]
 nameservers = ["1.1.1.1:53", "8.8.8.8:53"]

@@ -1,3 +1,4 @@
+use crate::config::models::UnmatchedQueryBehavior;
 use crate::core::dns_cache::{CacheKey, DnsCache};
 use crate::core::error::{DnsProcessingError, ResolveError};
 use crate::core::local_hosts_resolver::LocalHostsResolver;
@@ -94,12 +95,25 @@ impl DnsRequestProcessor {
             }
         }
 
-        let instruction = self
+        let instruction_opt = self
             .rule_engine
             .determine_resolution_instruction(question)
             .instrument(tracing::info_span!("rule_engine_eval"))
-            .await
-            .unwrap_or(ResolutionInstruction::UseDefaultResolver);
+            .await;
+
+        let (instruction, instruction_from_rule) = match instruction_opt {
+            Some(instruction) => (instruction, true),
+            None => (
+                match app_config.server.unmatched_query_behavior {
+                    UnmatchedQueryBehavior::UseDefaultResolver => {
+                        ResolutionInstruction::UseDefaultResolver
+                    }
+                    UnmatchedQueryBehavior::Refuse => ResolutionInstruction::Refuse,
+                    UnmatchedQueryBehavior::Servfail => ResolutionInstruction::Servfail,
+                },
+                false,
+            ),
+        };
 
         debug!(
             "Rule engine instruction for {}: {:?}",
@@ -120,6 +134,14 @@ impl DnsRequestProcessor {
             ResolutionInstruction::Allow => source_str = "AllowRule->Default",
             ResolutionInstruction::ResolveLocal => source_str = "ResolveLocalRule(Fail)",
             ResolutionInstruction::UseDefaultResolver => source_str = "DefaultResolver",
+            ResolutionInstruction::Refuse => {
+                source_str = if instruction_from_rule {
+                    "RefuseRule"
+                } else {
+                    "RefuseUnmatched"
+                }
+            }
+            ResolutionInstruction::Servfail => source_str = "ServfailUnmatched",
         };
 
         let mut initial_upstream_response_result: Result<DnsMessage, ResolveError> =
@@ -166,6 +188,24 @@ impl DnsRequestProcessor {
                 return Ok(response);
             }
             ResolutionInstruction::Allow | ResolutionInstruction::UseDefaultResolver => {}
+            ResolutionInstruction::Refuse => {
+                let response =
+                    DnsMessage::new_response(original_query_message, ResponseCode::Refused);
+                let latency_ms = start_time.elapsed().as_millis();
+                if instruction_from_rule {
+                    event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query refused by rule");
+                } else {
+                    event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query refused (unmatched)");
+                }
+                return Ok(response);
+            }
+            ResolutionInstruction::Servfail => {
+                let response =
+                    DnsMessage::new_response(original_query_message, ResponseCode::ServFail);
+                let latency_ms = start_time.elapsed().as_millis();
+                event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail (unmatched)");
+                return Ok(response);
+            }
             ResolutionInstruction::ResolveLocal => {
                 warn!(
                     "Rule specified ResolveLocal for {}, but not found in local hosts. Returning NXDomain.",
@@ -381,6 +421,7 @@ mod integration_tests {
     use crate::config::models::{
         AwsAccountConfig, CacheConfig, CliConfig, DefaultResolverConfig, HashableRegex,
         LoggingConfig, ResolverStrategy, RuleAction, RuleConfig, ServerConfig,
+        UnmatchedQueryBehavior,
     };
     use crate::core::error::{CliError, ConfigError};
     use crate::core::types::AppStatus;
@@ -629,6 +670,43 @@ mod integration_tests {
         }
     }
 
+    fn create_test_config_with_refuse_rule(domain_to_refuse: &str) -> AppConfig {
+        let refuse_rule = RuleConfig {
+            name: "refuse_specific_domain_rule".to_string(),
+            domain_pattern: HashableRegex(
+                Regex::new(&format!("^{}$", regex::escape(domain_to_refuse)))
+                    .expect("Invalid regex in test rule setup"),
+            ),
+            action: RuleAction::Refuse,
+            nameservers: None,
+            strategy: ResolverStrategy::First,
+            timeout: Duration::from_secs(1),
+            doh_compression_mutation: false,
+            source_list_url: None,
+            invert_match: false,
+        };
+
+        AppConfig {
+            server: ServerConfig::default(),
+            default_resolver: DefaultResolverConfig::default(),
+            routing_rules: vec![refuse_rule],
+            local_hosts: None,
+            cache: CacheConfig {
+                enabled: false,
+                max_capacity: 0,
+                min_ttl: Duration::from_secs(1),
+                max_ttl: Duration::from_secs(1),
+                serve_stale_if_error: false,
+                serve_stale_max_ttl: Duration::from_secs(1),
+            },
+            http_proxy: None,
+            aws: None,
+            logging: LoggingConfig::default(),
+            cli: CliConfig::default(),
+            update: None,
+        }
+    }
+
     async fn setup_processor_with_config(
         app_config: AppConfig,
         mock_resolver: MockUpstreamResolver,
@@ -656,6 +734,67 @@ mod integration_tests {
             local_hosts_resolver,
             Arc::new(mock_resolver),
         ))
+    }
+
+    mod unmatched_behavior {
+        use super::*;
+        use crate::core::types::ProtocolType;
+        use crate::ports::DnsQueryService;
+
+        fn app_config_with_behavior(behavior: UnmatchedQueryBehavior) -> AppConfig {
+            let mut config = AppConfig::default();
+            config.server.unmatched_query_behavior = behavior;
+            config.cache.enabled = false;
+            config
+        }
+
+        #[tokio::test]
+        async fn unmatched_refuse_returns_refused_without_upstream() {
+            let app_config = app_config_with_behavior(UnmatchedQueryBehavior::Refuse);
+            let mock_upstream_resolver = MockUpstreamResolver::new();
+            let processor = setup_processor_with_config(app_config, mock_upstream_resolver).await;
+
+            let query = DnsMessage::new_query(42, "unmatched.test", RecordType::A)
+                .expect("Failed to create query message");
+            let query_bytes = serialize_dns_message(&query).expect("Failed to serialize query");
+
+            let response_bytes = processor
+                .process_query(
+                    query_bytes,
+                    "127.0.0.1:40000".parse::<SocketAddr>().unwrap(),
+                    ProtocolType::Udp,
+                )
+                .await
+                .expect("Processing query should succeed");
+
+            let response = parse_dns_message(&response_bytes).expect("Should parse DNS response");
+            assert_eq!(response.id(), 42);
+            assert_eq!(response.response_code(), ResponseCode::Refused);
+        }
+
+        #[tokio::test]
+        async fn unmatched_servfail_returns_servfail_without_upstream() {
+            let app_config = app_config_with_behavior(UnmatchedQueryBehavior::Servfail);
+            let mock_upstream_resolver = MockUpstreamResolver::new();
+            let processor = setup_processor_with_config(app_config, mock_upstream_resolver).await;
+
+            let query = DnsMessage::new_query(84, "servfail.test", RecordType::A)
+                .expect("Failed to create query message");
+            let query_bytes = serialize_dns_message(&query).expect("Failed to serialize query");
+
+            let response_bytes = processor
+                .process_query(
+                    query_bytes,
+                    "127.0.0.1:40001".parse::<SocketAddr>().unwrap(),
+                    ProtocolType::Udp,
+                )
+                .await
+                .expect("Processing query should succeed");
+
+            let response = parse_dns_message(&response_bytes).expect("Should parse DNS response");
+            assert_eq!(response.id(), 84);
+            assert_eq!(response.response_code(), ResponseCode::ServFail);
+        }
     }
 
     mod block_action_integration {
@@ -710,6 +849,60 @@ mod integration_tests {
             assert!(
                 response_message.answers().next().is_none(),
                 "There should be no answer records for an NXDomain response from a block rule"
+            );
+        }
+    }
+
+    mod refuse_action_integration {
+        use super::*;
+        use crate::core::types::ProtocolType;
+        use crate::ports::DnsQueryService;
+
+        #[tokio::test]
+        async fn test_processor_refuse_rule_returns_refused_and_no_upstream_call() {
+            let domain_to_refuse = "refuse.com";
+            let app_config = create_test_config_with_refuse_rule(domain_to_refuse);
+
+            let mock_upstream_resolver = MockUpstreamResolver::new();
+
+            let processor = setup_processor_with_config(app_config, mock_upstream_resolver).await;
+
+            let query_id = 321;
+            let query_msg_original =
+                DnsMessage::new_query(query_id, domain_to_refuse, RecordType::A)
+                    .expect("Failed to create query message");
+            let query_bytes =
+                serialize_dns_message(&query_msg_original).expect("Failed to serialize query");
+
+            let client_addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+            let protocol = ProtocolType::Udp;
+
+            let response_bytes_result = processor
+                .process_query(query_bytes, client_addr, protocol)
+                .await;
+
+            assert_matches!(
+                response_bytes_result,
+                Ok(_),
+                "Processing query should succeed overall"
+            );
+            let response_bytes = response_bytes_result.unwrap();
+            let response_message =
+                parse_dns_message(&response_bytes).expect("Should be able to parse DNS response");
+
+            assert_eq!(
+                response_message.id(),
+                query_id,
+                "Response ID should match query ID"
+            );
+            assert_eq!(
+                response_message.response_code(),
+                ResponseCode::Refused,
+                "Response code should be Refused for a refuse rule"
+            );
+            assert!(
+                response_message.answers().next().is_none(),
+                "There should be no answer records for a refused response"
             );
         }
     }
