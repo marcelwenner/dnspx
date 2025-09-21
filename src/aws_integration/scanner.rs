@@ -262,21 +262,20 @@ impl AwsVpcScannerTask {
             );
         }
 
-        if let Some(output_file) = &aws_global_config.output_file_name {
-            if !proxy_bypass_list_domains.is_empty() {
-                let bypass_content = Self::format_bypass_list(&proxy_bypass_list_domains);
-                match tokio::fs::write(output_file, bypass_content).await {
-                    Ok(_) => info!(
-                        "Successfully wrote AWS proxy bypass list to {:?}",
-                        output_file
-                    ),
-                    Err(e) => {
-                        let err_msg = format!(
-                            "Failed to write AWS proxy bypass list to {output_file:?}: {e}"
-                        );
-                        error!("{}", err_msg);
-                        accumulated_general_errors.push(err_msg);
-                    }
+        if let Some(output_file) = &aws_global_config.output_file_name
+            && !proxy_bypass_list_domains.is_empty()
+        {
+            let bypass_content = Self::format_bypass_list(&proxy_bypass_list_domains);
+            match tokio::fs::write(output_file, bypass_content).await {
+                Ok(_) => info!(
+                    "Successfully wrote AWS proxy bypass list to {:?}",
+                    output_file
+                ),
+                Err(e) => {
+                    let err_msg =
+                        format!("Failed to write AWS proxy bypass list to {output_file:?}: {e}");
+                    error!("{}", err_msg);
+                    accumulated_general_errors.push(err_msg);
                 }
             }
         }

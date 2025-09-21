@@ -64,10 +64,12 @@ pub(crate) async fn run_udp_listener(
                                         error!(client = %client_addr, "Error processing UDP DNS query: {}", e);
                                         if let Ok(query_msg) = parse_dns_message(&data) {
                                             let err_response = AppDnsMessage::new_response(&query_msg, ResponseCode::FormErr);
-                                            if let Ok(response_bytes) = serialize_dns_message(&err_response) {
-                                                if let Err(e_send) = socket_clone.send_to(&response_bytes, client_addr).await {
-                                                    error!(client = %client_addr, "Failed to send FormErr UDP response: {}", e_send);
-                                                }
+                                            if let Ok(response_bytes) = serialize_dns_message(&err_response)
+                                                && let Err(e_send) = socket_clone
+                                                    .send_to(&response_bytes, client_addr)
+                                                    .await
+                                            {
+                                                error!(client = %client_addr, "Failed to send FormErr UDP response: {}", e_send);
                                             }
                                         }
                                     }

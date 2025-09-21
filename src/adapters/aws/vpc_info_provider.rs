@@ -113,15 +113,13 @@ impl AwsSdkVpcInfoProvider {
                     .and_then(|c| c.strip_prefix("VPC Endpoint ID: "))
                     .map(String::from);
 
-                if let Some(vpce_id) = vpce_id_from_comment {
-                    if let Some((vpce_ips, vpce_actual_vpc_id_opt)) = vpce_details_map.get(&vpce_id)
-                    {
-                        if vpc_id_filter.is_none_or(|filter_vpc| {
-                            vpce_actual_vpc_id_opt.as_deref() == Some(filter_vpc)
-                        }) {
-                            ips.extend_from_slice(vpce_ips);
-                        }
-                    }
+                if let Some(vpce_id) = vpce_id_from_comment
+                    && let Some((vpce_ips, vpce_actual_vpc_id_opt)) = vpce_details_map.get(&vpce_id)
+                    && vpc_id_filter.is_none_or(|filter_vpc| {
+                        vpce_actual_vpc_id_opt.as_deref() == Some(filter_vpc)
+                    })
+                {
+                    ips.extend_from_slice(vpce_ips);
                 }
             }
         }
@@ -165,39 +163,39 @@ impl AwsSdkVpcInfoProvider {
             match request_builder.send().await {
                 Ok(output) => {
                     for endpoint in output.resolver_endpoints() {
-                        if endpoint.direction() == Some(&ResolverEndpointDirection::Inbound) {
-                            if let Some(endpoint_id) = endpoint.id() {
-                                match client
-                                    .list_resolver_endpoint_ip_addresses()
-                                    .resolver_endpoint_id(endpoint_id)
-                                    .send()
-                                    .await
-                                {
-                                    Ok(ip_output) => {
-                                        for ip_address_response in ip_output.ip_addresses() {
-                                            if let Some(ip_str) = ip_address_response.ip() {
-                                                if let Ok(ip_addr) = IpAddr::from_str(ip_str) {
-                                                    discovered_ips.push(ip_addr);
-                                                    info!(
-                                                        "Discovered Route 53 Inbound Endpoint IP: {} for Endpoint ID: {}",
-                                                        ip_str, endpoint_id
-                                                    );
-                                                } else {
-                                                    warn!(
-                                                        "Failed to parse IP address: {} for R53 Inbound Endpoint {}",
-                                                        ip_str, endpoint_id
-                                                    );
-                                                }
-                                            }
+                        if endpoint.direction() == Some(&ResolverEndpointDirection::Inbound)
+                            && let Some(endpoint_id) = endpoint.id()
+                        {
+                            match client
+                                .list_resolver_endpoint_ip_addresses()
+                                .resolver_endpoint_id(endpoint_id)
+                                .send()
+                                .await
+                            {
+                                Ok(ip_output) => {
+                                    for ip_address_response in ip_output.ip_addresses() {
+                                        if let Some(ip_str) = ip_address_response.ip()
+                                            && let Ok(ip_addr) = IpAddr::from_str(ip_str)
+                                        {
+                                            discovered_ips.push(ip_addr);
+                                            info!(
+                                                "Discovered Route 53 Inbound Endpoint IP: {} for Endpoint ID: {}",
+                                                ip_str, endpoint_id
+                                            );
+                                        } else if let Some(ip_str) = ip_address_response.ip() {
+                                            warn!(
+                                                "Failed to parse IP address: {} for R53 Inbound Endpoint {}",
+                                                ip_str, endpoint_id
+                                            );
                                         }
                                     }
-                                    Err(e) => {
-                                        warn!(
-                                            "Failed to list IP addresses for R53 Inbound Endpoint {}: {}",
-                                            endpoint_id,
-                                            e.into_service_error()
-                                        );
-                                    }
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to list IP addresses for R53 Inbound Endpoint {}: {}",
+                                        endpoint_id,
+                                        e.into_service_error()
+                                    );
                                 }
                             }
                         }
@@ -367,10 +365,9 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                         for private_ip_addr_assoc in ni.private_ip_addresses() {
                                             if let Some(ip_str) =
                                                 private_ip_addr_assoc.private_ip_address()
+                                                && let Ok(ip_addr) = ip_str.parse::<IpAddr>()
                                             {
-                                                if let Ok(ip_addr) = ip_str.parse::<IpAddr>() {
-                                                    private_ips.push(ip_addr);
-                                                }
+                                                private_ips.push(ip_addr);
                                             }
                                         }
                                     }

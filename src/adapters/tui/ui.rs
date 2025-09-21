@@ -150,16 +150,15 @@ fn draw_aws_profile_setup_form(frame: &mut Frame<'_>, app: &mut TuiApp) {
     frame.render_widget(block, form_area);
 
     let mut show_simplified_error_ui = false;
-    if let Some(error_message) = &app.aws_form_validation_error {
-        if error_message
+    if let Some(error_message) = &app.aws_form_validation_error
+        && (error_message
             == "No AWS profiles found or 'default' is not configured. Please create one using AWS CLI."
             || error_message.starts_with("Failed to read AWS profiles")
             || error_message.starts_with(
                 "AWS configuration files (~/.aws/config, ~/.aws/credentials) not found",
-            )
-        {
-            show_simplified_error_ui = true;
-        }
+            ))
+    {
+        show_simplified_error_ui = true;
     }
 
     if show_simplified_error_ui {

@@ -98,10 +98,10 @@ impl ReleaseAnalyzer {
 
         for line in body.lines() {
             let line = line.trim().to_lowercase();
-            if line.contains("deprecat") || line.contains("⚠️") {
-                if let Some(original) = body.lines().find(|l| l.trim().to_lowercase() == line) {
-                    deprecations.push(original.trim().to_string());
-                }
+            if (line.contains("deprecat") || line.contains("⚠️"))
+                && let Some(original) = body.lines().find(|l| l.trim().to_lowercase() == line)
+            {
+                deprecations.push(original.trim().to_string());
             }
         }
 

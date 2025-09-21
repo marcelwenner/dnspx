@@ -1045,15 +1045,13 @@ impl TuiApp {
         if self.aws_profile_dropdown_open {
             if !self.aws_available_profiles.is_empty()
                 && !self.aws_available_profiles[0].starts_with('<')
-            {
-                if let Some(selected_profile) = self
+                && let Some(selected_profile) = self
                     .aws_available_profiles
                     .get(self.aws_profile_selection_idx)
-                {
-                    self.aws_profile_form_data.selected_profile_name = selected_profile.clone();
-                    self.trigger_aws_profile_info_update(selected_profile.clone())
-                        .await;
-                }
+            {
+                self.aws_profile_form_data.selected_profile_name = selected_profile.clone();
+                self.trigger_aws_profile_info_update(selected_profile.clone())
+                    .await;
             }
             self.aws_profile_dropdown_open = false;
             self.aws_next_field();
@@ -1265,11 +1263,11 @@ impl TuiApp {
                         format!("AWS Verbindungstest erfolgreich! ARN: {arn}"),
                         MessageLevel::Info,
                     );
-                    if let Some(parts) = arn.split(':').nth(4) {
-                        if parts.chars().all(char::is_numeric) && parts.len() == 12 {
-                            self.aws_profile_form_data.detected_account_id =
-                                Some(parts.to_string());
-                        }
+                    if let Some(parts) = arn.split(':').nth(4)
+                        && parts.chars().all(char::is_numeric)
+                        && parts.len() == 12
+                    {
+                        self.aws_profile_form_data.detected_account_id = Some(parts.to_string());
                     }
                     let profile_name_for_sdk_load =
                         self.aws_profile_form_data.selected_profile_name.clone();
@@ -1343,20 +1341,20 @@ impl TuiApp {
 
         let app_config_arc = self.app_lifecycle.get_config();
         let config_guard = app_config_arc.read().await;
-        if let Some(aws_conf) = &config_guard.aws {
-            if aws_conf.accounts.iter().any(|acc| {
+        if let Some(aws_conf) = &config_guard.aws
+            && aws_conf.accounts.iter().any(|acc| {
                 acc.label == self.aws_profile_form_data.dnspx_label_input
                     && Some(&acc.label) != self.aws_profile_form_data.original_dnspx_label.as_ref()
-            }) {
-                self.aws_form_validation_error = Some(format!(
-                    "Label '{}' existiert bereits.",
-                    self.aws_profile_form_data.dnspx_label_input
-                ));
-                self.aws_setup_current_field = AwsSetupField::Label;
-                self.aws_load_field_value_into_input_buffer();
-                drop(config_guard);
-                return;
-            }
+            })
+        {
+            self.aws_form_validation_error = Some(format!(
+                "Label '{}' existiert bereits.",
+                self.aws_profile_form_data.dnspx_label_input
+            ));
+            self.aws_setup_current_field = AwsSetupField::Label;
+            self.aws_load_field_value_into_input_buffer();
+            drop(config_guard);
+            return;
         }
         drop(config_guard);
 
