@@ -583,10 +583,10 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            if let Err(e) = cli_task_handle.await {
-                if !e.is_cancelled() {
-                    eprintln!("[ERROR] CLI task ended with an error: {e:?}");
-                }
+            if let Err(e) = cli_task_handle.await
+                && !e.is_cancelled()
+            {
+                eprintln!("[ERROR] CLI task ended with an error: {e:?}");
             }
         } else {
             error!(
