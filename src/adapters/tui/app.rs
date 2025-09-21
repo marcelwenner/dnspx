@@ -1658,16 +1658,24 @@ impl TuiApp {
                         match key_event.code {
                             crossterm::event::KeyCode::Char('h')
                             | crossterm::event::KeyCode::Char('?') => {
-                                self.show_help_popup = !self.show_help_popup
+                                let toggled = !self.show_help_popup;
+                                self.show_help_popup = toggled;
+                                if toggled {
+                                    self.show_license_popup = false;
+                                    self.show_releasenotes_popup = false;
+                                }
                             }
                             crossterm::event::KeyCode::Char('l')
                                 if key_event
                                     .modifiers
                                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
                             {
-                                self.show_license_popup = !self.show_license_popup;
-                                if self.show_license_popup {
+                                let toggled = !self.show_license_popup;
+                                self.show_license_popup = toggled;
+                                if toggled {
                                     self.license_popup_scroll_offset = 0;
+                                    self.show_help_popup = false;
+                                    self.show_releasenotes_popup = false;
                                 }
                             }
                             crossterm::event::KeyCode::Char('n')
@@ -1675,10 +1683,13 @@ impl TuiApp {
                                     .modifiers
                                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
                             {
-                                self.show_releasenotes_popup = !self.show_releasenotes_popup;
-                                if self.show_releasenotes_popup {
+                                let toggled = !self.show_releasenotes_popup;
+                                self.show_releasenotes_popup = toggled;
+                                if toggled {
                                     self.releasenotes_popup_scroll_offset = 0;
                                     self.clamp_release_notes_scroll();
+                                    self.show_help_popup = false;
+                                    self.show_license_popup = false;
                                 }
                             }
                             crossterm::event::KeyCode::Char('v')
