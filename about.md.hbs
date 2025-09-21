@@ -1,0 +1,24 @@
+# Third Party Licenses
+
+## License Overview
+{{#each overview}}
+- [{{name}}](#{{id}}) ({{count}})
+{{/each}}
+
+---
+{{#each licenses}}
+### {{name}}
+
+**Used by:**
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}{{#if crate.repository}} — [repository]({{crate.repository}}){{/if}}
+{{/each}}
+
+**License text:**
+
+```
+{{text}}
+```
+
+---
+{{/each}}

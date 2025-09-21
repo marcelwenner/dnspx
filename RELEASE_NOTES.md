@@ -1,5 +1,24 @@
 # DNSPX Release Notes
 
+## Version 0.9.5 - Rule-Level Refuse & Dependency Hardening
+
+### New Features
+- **Rule-based REFUSED responses:**
+  - Added `RuleAction::Refuse`, enabling routing rules to deliver `REFUSED` responses without contacting upstream resolvers.
+  - Extended fallback control via `server.unmatched_query_behavior` (`UseDefaultResolver`, `Refuse`, `Servfail`) so unmatched domains can be blocked or passed to secondary resolvers as desired.
+
+### Improvements
+- Updated default and example configuration files along with the README to describe the new refusal actions and unmatched handling options.
+
+### Dependency & Security Updates
+- Refreshed the dependency graph (notable bumps: `aws-sdk-*`, `reqwest`, `hyper`, `chrono`, `serde`, `clap`, `thiserror`, `toml`, `tempfile`, `tracing-subscriber`, `cc`).
+- Removed the `httpmock` dev dependency (and its `async-std` stack) to eliminate RUSTSEC-2025-0052 and simplify security tests.
+- Raised the large-config migration performance threshold to accommodate the updated migration pipeline.
+- Regenerated `THIRD_PARTY_LICENSES.md` with `cargo about`; committed the template/config so license inventories stay reproducible.
+
+### Tooling
+- Ensured `cargo deny check` passes with the refreshed dependencies and documented policy exceptions.
+
 ## Version 0.9.3 - Platform-Aware Config Directory Resolution
 
 ### Bug Fixes
