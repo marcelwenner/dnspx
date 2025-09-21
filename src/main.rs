@@ -315,7 +315,7 @@ async fn main() -> anyhow::Result<()> {
                 app_conf.http_proxy.clone(),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to create DoH client: {}", e))?,
+            .map_err(|e| anyhow::anyhow!("Failed to create DoH client: {e}"))?,
         )
     };
 
