@@ -57,13 +57,13 @@ pub(crate) fn migrate(
         app_config.server.listen_address = format!("0.0.0.0:{validated_port}");
         app_config.server.protocols = vec![ProtocolType::Udp, ProtocolType::Tcp];
 
-        if let Some(timeout_ms) = dns_host.default_query_timeout {
-            if timeout_ms > 0 {
-                app_config.server.default_query_timeout = Duration::from_millis(timeout_ms);
-                messages.push(MigrationMessage::info(format!(
-                    "  Set server.default_query_timeout to {timeout_ms}ms"
-                )));
-            }
+        if let Some(timeout_ms) = dns_host.default_query_timeout
+            && timeout_ms > 0
+        {
+            app_config.server.default_query_timeout = Duration::from_millis(timeout_ms);
+            messages.push(MigrationMessage::info(format!(
+                "  Set server.default_query_timeout to {timeout_ms}ms"
+            )));
         }
 
         if let Some(whitelist) = dns_host.network_whitelist {
@@ -99,13 +99,13 @@ pub(crate) fn migrate(
             "Migrating DefaultResolverConfig...".to_string(),
         ));
         if let Some(servers) = dns_default.servers {
-            if let Some(nameservers) = servers.name_server {
-                if !nameservers.is_empty() {
-                    app_config.default_resolver.nameservers = nameservers.clone();
-                    messages.push(MigrationMessage::info(format!(
-                        "  Set default_resolver.nameservers to: {nameservers:?}"
-                    )));
-                }
+            if let Some(nameservers) = servers.name_server
+                && !nameservers.is_empty()
+            {
+                app_config.default_resolver.nameservers = nameservers.clone();
+                messages.push(MigrationMessage::info(format!(
+                    "  Set default_resolver.nameservers to: {nameservers:?}"
+                )));
             }
             if let Some(strategy_str) = servers.strategy {
                 let new_strategy = match strategy_str.to_lowercase().as_str() {
@@ -120,13 +120,13 @@ pub(crate) fn migrate(
                     "  Set default_resolver.strategy to: {strategy:?}"
                 )));
             }
-            if let Some(timeout_ms) = servers.query_timeout {
-                if timeout_ms > 0 {
-                    app_config.default_resolver.timeout = Duration::from_millis(timeout_ms);
-                    messages.push(MigrationMessage::info(format!(
-                        "  Set default_resolver.timeout to {timeout_ms}ms"
-                    )));
-                }
+            if let Some(timeout_ms) = servers.query_timeout
+                && timeout_ms > 0
+            {
+                app_config.default_resolver.timeout = Duration::from_millis(timeout_ms);
+                messages.push(MigrationMessage::info(format!(
+                    "  Set default_resolver.timeout to {timeout_ms}ms"
+                )));
             }
             app_config.default_resolver.doh_compression_mutation =
                 servers.compression_mutation.unwrap_or(false);
@@ -1809,19 +1809,18 @@ mod tests {
                     // Extract and validate the port
                     if let Some(port_str) =
                         migrated_config.server.listen_address.split(':').next_back()
+                        && let Ok(port) = port_str.parse::<u16>()
                     {
-                        if let Ok(port) = port_str.parse::<u16>() {
-                            // Port 0 should be converted to 53 with a warning
-                            if test_json.contains("\"ListenerPort\": 0") {
-                                assert_eq!(port, 53, "Port 0 should be defaulted to 53");
-                                let has_warning = messages.iter().any(|m| {
-                                    m.level == MessageLevel::Warning
-                                        && m.text.contains("Invalid port 0")
-                                });
-                                assert!(has_warning, "Should have warning for port 0");
-                            } else {
-                                assert!(port > 0, "Port should be in valid range: {port}");
-                            }
+                        // Port 0 should be converted to 53 with a warning
+                        if test_json.contains("\"ListenerPort\": 0") {
+                            assert_eq!(port, 53, "Port 0 should be defaulted to 53");
+                            let has_warning = messages.iter().any(|m| {
+                                m.level == MessageLevel::Warning
+                                    && m.text.contains("Invalid port 0")
+                            });
+                            assert!(has_warning, "Should have warning for port 0");
+                        } else {
+                            assert!(port > 0, "Port should be in valid range: {port}");
                         }
                     }
 
@@ -2026,23 +2025,22 @@ mod tests {
                             );
 
                             // Account IDs should be valid if present
-                            if let Some(account_id) = account.account_id {
-                                if !account_id.is_empty() {
-                                    // AWS account IDs should be 12 digits
-                                    if account_id.len() == 12
-                                        && account_id.chars().all(|c| c.is_ascii_digit())
-                                    {
-                                        // Valid account ID
-                                    } else {
-                                        // Invalid account IDs should generate warnings, not panic
-                                        let has_warning = messages
-                                            .iter()
-                                            .any(|m| m.level == MessageLevel::Warning);
-                                        if !has_warning {
-                                            eprintln!(
-                                                "Warning: Invalid account ID format should generate warning: {account_id}"
-                                            );
-                                        }
+                            if let Some(account_id) = account.account_id
+                                && !account_id.is_empty()
+                            {
+                                // AWS account IDs should be 12 digits
+                                if account_id.len() == 12
+                                    && account_id.chars().all(|c| c.is_ascii_digit())
+                                {
+                                    // Valid account ID
+                                } else {
+                                    // Invalid account IDs should generate warnings, not panic
+                                    let has_warning =
+                                        messages.iter().any(|m| m.level == MessageLevel::Warning);
+                                    if !has_warning {
+                                        eprintln!(
+                                            "Warning: Invalid account ID format should generate warning: {account_id}"
+                                        );
                                     }
                                 }
                             }

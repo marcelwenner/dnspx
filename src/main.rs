@@ -67,11 +67,11 @@ struct CliArgs {
 fn determine_config_base_path() -> PathBuf {
     use tracing::{debug, warn};
 
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            debug!("Using executable's directory as base path: {:?}", exe_dir);
-            return exe_dir.to_path_buf();
-        }
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        debug!("Using executable's directory as base path: {:?}", exe_dir);
+        return exe_dir.to_path_buf();
     }
 
     warn!("Could not determine executable path. Falling back to current working directory.");

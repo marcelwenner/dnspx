@@ -66,33 +66,30 @@ impl DnsRequestProcessor {
         }
 
         let cache_key = CacheKey::from_question(question);
-        if app_config.cache.enabled {
-            if let Some(cached_entry_arc) = self
+        if app_config.cache.enabled
+            && let Some(cached_entry_arc) = self
                 .dns_cache
                 .get(&cache_key, app_config.cache.serve_stale_if_error)
                 .instrument(tracing::info_span!("cache_get"))
                 .await
-            {
-                source_str = if cached_entry_arc.is_valid() {
-                    "Cache"
-                } else {
-                    "Cache(Stale)"
-                };
-                debug!("Resolved from cache for {}: {}", question.name, source_str);
-                let mut response = DnsMessage::new_response(
-                    original_query_message,
-                    cached_entry_arc.response_code,
-                );
-                for record_from_cache in &cached_entry_arc.records {
-                    let mut cloned_record = record_from_cache.clone();
-                    cloned_record.set_ttl(cached_entry_arc.current_ttl_remaining_secs());
-                    response.add_answer_record(cloned_record);
-                }
-                response.set_authoritative(false);
-                let latency_ms = start_time.elapsed().as_millis();
-                event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query resolved");
-                return Ok(response);
+        {
+            source_str = if cached_entry_arc.is_valid() {
+                "Cache"
+            } else {
+                "Cache(Stale)"
+            };
+            debug!("Resolved from cache for {}: {}", question.name, source_str);
+            let mut response =
+                DnsMessage::new_response(original_query_message, cached_entry_arc.response_code);
+            for record_from_cache in &cached_entry_arc.records {
+                let mut cloned_record = record_from_cache.clone();
+                cloned_record.set_ttl(cached_entry_arc.current_ttl_remaining_secs());
+                response.add_answer_record(cloned_record);
             }
+            response.set_authoritative(false);
+            let latency_ms = start_time.elapsed().as_millis();
+            event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query resolved");
+            return Ok(response);
         }
 
         let instruction_opt = self

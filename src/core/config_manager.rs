@@ -56,14 +56,14 @@ impl ConfigurationManager {
                 "Initial configuration established. Saving to {:?}",
                 config_file_path
             );
-            if let Some(parent_dir) = config_file_path.parent() {
-                if !parent_dir.exists() {
-                    std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
-                        path: parent_dir.to_path_buf(),
-                        source: e,
-                    })?;
-                    tracing::info!("Created config directory: {:?}", parent_dir);
-                }
+            if let Some(parent_dir) = config_file_path.parent()
+                && !parent_dir.exists()
+            {
+                std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
+                    path: parent_dir.to_path_buf(),
+                    source: e,
+                })?;
+                tracing::info!("Created config directory: {:?}", parent_dir);
             }
             config_store.save_app_config_file(&initial_result.app_config, &config_file_path)?;
         }
@@ -498,17 +498,17 @@ impl ConfigurationManager {
         let config_to_save = config_w.clone();
         drop(config_w);
 
-        if let Some(parent_dir) = self.config_file_path.parent() {
-            if !parent_dir.exists() {
-                std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
-                    path: parent_dir.to_path_buf(),
-                    source: e,
-                })?;
-                tracing::info!(
-                    "Created config directory for programmatic save: {:?}",
-                    parent_dir
-                );
-            }
+        if let Some(parent_dir) = self.config_file_path.parent()
+            && !parent_dir.exists()
+        {
+            std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
+                path: parent_dir.to_path_buf(),
+                source: e,
+            })?;
+            tracing::info!(
+                "Created config directory for programmatic save: {:?}",
+                parent_dir
+            );
         }
 
         self.config_store

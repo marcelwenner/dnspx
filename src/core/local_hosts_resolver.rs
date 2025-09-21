@@ -212,47 +212,47 @@ impl LocalHostsResolver {
             }
             RecordType::PTR => {
                 let reverse_hosts_guard = self.reverse_hosts.read().await;
-                if let Ok(ip_from_ptr) = Self::ip_from_ptr_name(&normalized_name) {
-                    if let Some(hostnames) = reverse_hosts_guard.get(&ip_from_ptr) {
-                        debug!(
-                            "LocalHosts: Found PTR record(s) for {}: {:?}",
-                            normalized_name, hostnames
-                        );
-                        let mut records_added = false;
-                        for hostname_str in hostnames {
-                            let fqdn_hostname = if hostname_str.ends_with('.') {
-                                hostname_str.clone()
-                            } else {
-                                format!("{hostname_str}.")
-                            };
-                            match Name::from_str(&fqdn_hostname) {
-                                Ok(target_name) => {
-                                    let rdata = RData::PTR(PTR(target_name));
-                                    match Name::from_str(&question.name) {
-                                        Ok(query_name_obj) => {
-                                            let record = Record::from_rdata(
-                                                query_name_obj.clone(),
-                                                hosts_ttl,
-                                                rdata,
-                                            );
-                                            response.add_answer_record(record);
-                                            records_added = true;
-                                        }
-                                        Err(e) => warn!(
-                                            "LocalHosts: Failed to parse name for PTR query '{}': {}",
-                                            question.name, e
-                                        ),
+                if let Ok(ip_from_ptr) = Self::ip_from_ptr_name(&normalized_name)
+                    && let Some(hostnames) = reverse_hosts_guard.get(&ip_from_ptr)
+                {
+                    debug!(
+                        "LocalHosts: Found PTR record(s) for {}: {:?}",
+                        normalized_name, hostnames
+                    );
+                    let mut records_added = false;
+                    for hostname_str in hostnames {
+                        let fqdn_hostname = if hostname_str.ends_with('.') {
+                            hostname_str.clone()
+                        } else {
+                            format!("{hostname_str}.")
+                        };
+                        match Name::from_str(&fqdn_hostname) {
+                            Ok(target_name) => {
+                                let rdata = RData::PTR(PTR(target_name));
+                                match Name::from_str(&question.name) {
+                                    Ok(query_name_obj) => {
+                                        let record = Record::from_rdata(
+                                            query_name_obj.clone(),
+                                            hosts_ttl,
+                                            rdata,
+                                        );
+                                        response.add_answer_record(record);
+                                        records_added = true;
                                     }
+                                    Err(e) => warn!(
+                                        "LocalHosts: Failed to parse name for PTR query '{}': {}",
+                                        question.name, e
+                                    ),
                                 }
-                                Err(e) => warn!(
-                                    "LocalHosts: Failed to parse target name for PTR record '{}': {}",
-                                    fqdn_hostname, e
-                                ),
                             }
+                            Err(e) => warn!(
+                                "LocalHosts: Failed to parse target name for PTR record '{}': {}",
+                                fqdn_hostname, e
+                            ),
                         }
-                        if records_added {
-                            return Some(response);
-                        }
+                    }
+                    if records_added {
+                        return Some(response);
                     }
                 }
             }

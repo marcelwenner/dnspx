@@ -314,20 +314,20 @@ impl AwsVpcScannerTask {
         role_config_opt: Option<&AwsRoleConfig>,
     ) -> Vec<String> {
         let mut regions = HashSet::new();
-        if let Some(role_conf) = role_config_opt {
-            if let Some(role_regions) = &role_conf.scan_regions {
-                regions.extend(role_regions.iter().cloned());
-            }
+        if let Some(role_conf) = role_config_opt
+            && let Some(role_regions) = &role_conf.scan_regions
+        {
+            regions.extend(role_regions.iter().cloned());
         }
-        if regions.is_empty() {
-            if let Some(acc_regions) = &account_config.scan_regions {
-                regions.extend(acc_regions.iter().cloned());
-            }
+        if regions.is_empty()
+            && let Some(acc_regions) = &account_config.scan_regions
+        {
+            regions.extend(acc_regions.iter().cloned());
         }
-        if regions.is_empty() {
-            if let Some(default_region) = &aws_global_config.default_region {
-                regions.insert(default_region.clone());
-            }
+        if regions.is_empty()
+            && let Some(default_region) = &aws_global_config.default_region
+        {
+            regions.insert(default_region.clone());
         }
         if regions.is_empty() {
             warn!(
