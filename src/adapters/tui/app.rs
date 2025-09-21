@@ -271,6 +271,55 @@ impl TuiApp {
         }
     }
 
+    fn close_all_popups(&mut self) {
+        self.show_help_popup = false;
+        self.show_license_popup = false;
+        self.show_releasenotes_popup = false;
+    }
+
+    fn toggle_help_popup(&mut self) {
+        if self.show_help_popup {
+            self.show_help_popup = false;
+        } else {
+            self.close_all_popups();
+            self.show_help_popup = true;
+        }
+    }
+
+    fn toggle_license_popup(&mut self) {
+        if self.show_license_popup {
+            self.show_license_popup = false;
+            self.license_popup_scroll_offset = 0;
+        } else {
+            self.close_all_popups();
+            self.show_license_popup = true;
+            self.license_popup_scroll_offset = 0;
+        }
+    }
+
+    fn toggle_release_notes_popup(&mut self) {
+        if self.show_releasenotes_popup {
+            self.show_releasenotes_popup = false;
+            self.releasenotes_popup_scroll_offset = 0;
+        } else {
+            self.close_all_popups();
+            self.show_releasenotes_popup = true;
+            self.releasenotes_popup_scroll_offset = 0;
+            self.clamp_release_notes_scroll();
+        }
+    }
+
+    async fn toggle_cache_viewer(&mut self) {
+        self.show_cache_viewer = !self.show_cache_viewer;
+        if self.show_cache_viewer {
+            self.close_all_popups();
+            self.load_cache_items_for_view().await;
+        } else {
+            self.input_mode = InputMode::Normal;
+            self.cache_view_filter.clear();
+        }
+    }
+
     pub(crate) fn toggle_status_panel_view(&mut self) {
         self.current_status_panel_view = match self.current_status_panel_view {
             StatusPanelView::Dashboard => StatusPanelView::AwsScanner,
@@ -1575,6 +1624,35 @@ impl TuiApp {
                                     self.license_popup_scroll_offset = 0;
                                 }
                             }
+                            crossterm::event::KeyCode::Char('l')
+                                if key_event
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                self.toggle_license_popup();
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('n')
+                                if key_event
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                self.toggle_release_notes_popup();
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('v')
+                                if key_event
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                self.toggle_cache_viewer().await;
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('h')
+                            | crossterm::event::KeyCode::Char('?') => {
+                                self.toggle_help_popup();
+                                continue;
+                            }
                             _ => {}
                         }
                     } else if self.show_releasenotes_popup {
@@ -1635,6 +1713,35 @@ impl TuiApp {
                                     self.releasenotes_popup_scroll_offset = 0;
                                 }
                             }
+                            crossterm::event::KeyCode::Char('n')
+                                if key_event
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                self.toggle_release_notes_popup();
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('l')
+                                if key_event
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                self.toggle_license_popup();
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('v')
+                                if key_event
+                                    .modifiers
+                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                self.toggle_cache_viewer().await;
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('h')
+                            | crossterm::event::KeyCode::Char('?') => {
+                                self.toggle_help_popup();
+                                continue;
+                            }
                             _ => {}
                         }
                     } else if self.input_mode == InputMode::AwsProfileSetupForm {
@@ -1658,52 +1765,28 @@ impl TuiApp {
                         match key_event.code {
                             crossterm::event::KeyCode::Char('h')
                             | crossterm::event::KeyCode::Char('?') => {
-                                let toggled = !self.show_help_popup;
-                                self.show_help_popup = toggled;
-                                if toggled {
-                                    self.show_license_popup = false;
-                                    self.show_releasenotes_popup = false;
-                                }
+                                self.toggle_help_popup();
                             }
                             crossterm::event::KeyCode::Char('l')
                                 if key_event
                                     .modifiers
                                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
                             {
-                                let toggled = !self.show_license_popup;
-                                self.show_license_popup = toggled;
-                                if toggled {
-                                    self.license_popup_scroll_offset = 0;
-                                    self.show_help_popup = false;
-                                    self.show_releasenotes_popup = false;
-                                }
+                                self.toggle_license_popup();
                             }
                             crossterm::event::KeyCode::Char('n')
                                 if key_event
                                     .modifiers
                                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
                             {
-                                let toggled = !self.show_releasenotes_popup;
-                                self.show_releasenotes_popup = toggled;
-                                if toggled {
-                                    self.releasenotes_popup_scroll_offset = 0;
-                                    self.clamp_release_notes_scroll();
-                                    self.show_help_popup = false;
-                                    self.show_license_popup = false;
-                                }
+                                self.toggle_release_notes_popup();
                             }
                             crossterm::event::KeyCode::Char('v')
                                 if key_event
                                     .modifiers
                                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
                             {
-                                self.show_cache_viewer = !self.show_cache_viewer;
-                                if self.show_cache_viewer {
-                                    self.load_cache_items_for_view().await;
-                                } else {
-                                    self.input_mode = InputMode::Normal;
-                                    self.cache_view_filter.clear();
-                                }
+                                self.toggle_cache_viewer().await;
                             }
                             crossterm::event::KeyCode::Char('a')
                                 if key_event
