@@ -1,8 +1,8 @@
 # Third Party Licenses
 
 ## License Overview
-- [Apache License 2.0](#Apache-2.0) (365)
-- [MIT License](#MIT) (98)
+- [Apache License 2.0](#Apache-2.0) (364)
+- [MIT License](#MIT) (95)
 - [Unicode License v3](#Unicode-3.0) (19)
 - [ISC License](#ISC) (7)
 - [BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License](#BSD-3-Clause) (4)
@@ -9473,7 +9473,6 @@ limitations under the License.
 - document-features 0.2.11 — [repository](https://github.com/slint-ui/document-features)
 - dyn-clone 1.0.20 — [repository](https://github.com/dtolnay/dyn-clone)
 - fiat-crypto 0.2.9 — [repository](https://github.com/mit-plv/fiat-crypto)
-- fxhash 0.2.1 — [repository](https://github.com/cbreeden/fxhash)
 - ident_case 1.0.1 — [repository](https://github.com/TedDriggs/ident_case)
 - indoc 2.0.6 — [repository](https://github.com/dtolnay/indoc)
 - itoa 1.0.15 — [repository](https://github.com/dtolnay/itoa)
@@ -10338,7 +10337,6 @@ SOFTWARE.
 ### MIT License
 
 **Used by:**
-- mio 0.8.11 — [repository](https://github.com/tokio-rs/mio)
 - mio 1.0.4 — [repository](https://github.com/tokio-rs/mio)
 
 **License text:**
@@ -11483,9 +11481,8 @@ SOFTWARE.
 - async-stream-impl 0.3.6 — [repository](https://github.com/tokio-rs/async-stream)
 - async-stream 0.3.6 — [repository](https://github.com/tokio-rs/async-stream)
 - base64-simd 0.8.0 — [repository](https://github.com/Nugine/simd)
-- inquire 0.7.5 — [repository](https://github.com/mikaelmello/inquire)
+- inquire 0.9.1 — [repository](https://github.com/mikaelmello/inquire)
 - libm 0.2.15 — [repository](https://github.com/rust-lang/compiler-builtins)
-- newline-converter 0.3.0 — [repository](https://github.com/spitfire05/rnc/tree/master/crates/newline-converter)
 - number_prefix 0.4.0 — [repository](https://github.com/ogham/rust-number-prefix)
 - vsimd 0.8.0 — [repository](https://github.com/Nugine/simd)
 
@@ -11585,7 +11582,6 @@ SOFTWARE.
 ### MIT License
 
 **Used by:**
-- crossterm 0.25.0 — [repository](https://github.com/crossterm-rs/crossterm)
 - crossterm 0.28.1 — [repository](https://github.com/crossterm-rs/crossterm)
 - crossterm 0.29.0 — [repository](https://github.com/crossterm-rs/crossterm)
 - crossterm_winapi 0.9.1 — [repository](https://github.com/crossterm-rs/crossterm-winapi)

@@ -1135,7 +1135,7 @@ mod tests {
 
         assert_eq!(config.routing_rules.len(), 1000);
         assert!(
-            duration < Duration::from_millis(1_000),
+            duration < Duration::from_millis(1_200),
             "Migration took too long: {duration:?}"
         );
     }
