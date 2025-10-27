@@ -631,7 +631,7 @@ jobs:
     - name: Download security reports
       # Only download if artifacts were uploaded (schedule/dispatch)
       if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v6
       with:
         name: security-reports-${{ github.run_id }}
         path: security-reports/
@@ -649,7 +649,7 @@ jobs:
     - name: Download dependency reports
       if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       continue-on-error: true
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v6
       with:
         name: dependency-reports-${{ github.run_id }}
         path: dependency-reports/
@@ -1333,7 +1333,7 @@ jobs:
     if: always()
     steps:
     - name: Download all reports
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v6
       with:
         path: reports/
 
