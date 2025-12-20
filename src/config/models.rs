@@ -203,6 +203,15 @@ pub(crate) struct AppConfig {
     #[serde(default)]
     pub cli: CliConfig,
     pub update: Option<UpdateConfig>,
+    pub split_dns: Option<SplitDnsConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) struct SplitDnsConfig {
+    /// Explicit list of domains to route through DNSPX.
+    /// If empty, domains are auto-extracted from routing rules.
+    #[serde(default)]
+    pub domains: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -295,6 +304,7 @@ pub(crate) enum RuleAction {
     Allow,
     ResolveLocal,
     Refuse,
+    Servfail,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

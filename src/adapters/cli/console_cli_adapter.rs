@@ -1,10 +1,31 @@
+use crate::adapters::cli::split_dns_generator::{
+    format_human_output, generate_split_dns_output,
+};
 use crate::core::error::{CliError, UserInputError};
-use crate::core::types::{AppStatus, CliCommand, CliOutput, MessageLevel, UpdateResult};
+use crate::core::types::{
+    AppStatus, CliCommand, CliOutput, MessageLevel, SplitDnsSetupOptions, UpdateResult,
+};
 use crate::ports::{AppLifecycleManagerPort, InteractiveCliPort, UserInteractionPort};
 use async_trait::async_trait;
 use colored::*;
 use std::io::Write;
 use std::sync::Arc;
+
+/// Parse the split-dns-setup command with optional flags
+fn parse_split_dns_setup_command(input: &str) -> CliCommand {
+    let mut options = SplitDnsSetupOptions::default();
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    for part in parts.iter().skip(1) {
+        match *part {
+            "--json" => options.json_output = true,
+            "--print-domains" => options.print_domains_only = true,
+            _ => {} // Ignore unknown flags
+        }
+    }
+
+    CliCommand::SplitDnsSetup(options)
+}
 
 pub(crate) struct ConsoleCliAdapter {
     colors_enabled: bool,
@@ -37,6 +58,7 @@ impl ConsoleCliAdapter {
             ("scan", "Trigger AWS resource scan"),
             ("aws scan", "Trigger AWS resource scan"),
             ("config", "Show current configuration"),
+            ("split-dns-setup", "Generate split-DNS setup commands"),
             ("update", "Show update help"),
             ("exit, quit, q", "Exit the application"),
         ];
@@ -125,6 +147,9 @@ impl ConsoleCliAdapter {
                 "help" | "h" => CliCommand::Help,
                 "exit" | "quit" | "q" => CliCommand::Exit,
                 "" => continue,
+                _ if command_str.starts_with("split-dns-setup") => {
+                    parse_split_dns_setup_command(command_str)
+                }
                 _ => {
                     self.display_message(
                         &format!("Unknown command: '{command_str}'. Type 'help' for commands."),
@@ -593,6 +618,29 @@ impl InteractiveCliPort for ConsoleCliAdapter {
             CliCommand::UpdateHelp => {
                 self.display_update_help();
                 Ok(CliOutput::None)
+            }
+            CliCommand::SplitDnsSetup(options) => {
+                let config_arc = app_lifecycle.get_config();
+                let config = config_arc.read().await;
+                let output = generate_split_dns_output(&config);
+
+                if options.print_domains_only {
+                    // Just print domains, one per line
+                    let domains_output = output.domains.effective.join("\n");
+                    Ok(CliOutput::Message(domains_output))
+                } else if options.json_output {
+                    // JSON output
+                    match serde_json::to_value(&output) {
+                        Ok(json) => Ok(CliOutput::Json(json)),
+                        Err(e) => Err(CliError::Execution(format!(
+                            "Failed to serialize output: {e}"
+                        ))),
+                    }
+                } else {
+                    // Human-readable output
+                    let formatted = format_human_output(&output);
+                    Ok(CliOutput::Message(formatted))
+                }
             }
             CliCommand::Exit => Ok(CliOutput::Message("Initiating shutdown...".to_string())),
         }

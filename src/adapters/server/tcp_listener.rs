@@ -1,5 +1,5 @@
+use super::{create_error_response, is_client_whitelisted};
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{DnsMessage as AppDnsMessage, parse_dns_message, serialize_dns_message};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
 use hickory_proto::op::ResponseCode;
 use std::net::SocketAddr;
@@ -18,15 +18,7 @@ async fn handle_tcp_connection(
 ) {
     debug!(client = %client_addr, "New TCP connection established");
 
-    let whitelisted = {
-        let guard = app_config.read().await;
-        match &guard.server.network_whitelist {
-            Some(list) => list.iter().any(|net| net.contains(client_addr.ip())),
-            None => true,
-        }
-    };
-
-    if !whitelisted {
+    if !is_client_whitelisted(&app_config, client_addr.ip()).await {
         warn!(client = %client_addr, "Client IP not in whitelist, closing TCP connection.");
         let _ = stream.shutdown().await;
         return;
@@ -74,20 +66,14 @@ async fn handle_tcp_connection(
                             }
                             Err(e) => {
                                 error!(client = %client_addr, "Error processing TCP DNS query: {}", e);
-                                if let Ok(query_msg) = parse_dns_message(&query_buf) {
-                                    let err_response = AppDnsMessage::new_response(&query_msg, ResponseCode::FormErr);
-                                    if let Ok(response_bytes) = serialize_dns_message(&err_response) {
-                                        let response_len = response_bytes.len() as u16;
-
-                                        if let Err(e_send) = stream.write_all(&response_len.to_be_bytes()).await {
-                                            error!(client = %client_addr, "Failed to send FormErr TCP response length: {}", e_send);
-                                            break;
-                                        }
-
-
-                                        if let Err(e_send) = stream.write_all(&response_bytes).await {
-                                            error!(client = %client_addr, "Failed to send FormErr TCP response body: {}", e_send);
-                                        }
+                                if let Some(response_bytes) = create_error_response(&query_buf, ResponseCode::FormErr) {
+                                    let response_len = response_bytes.len() as u16;
+                                    if let Err(e_send) = stream.write_all(&response_len.to_be_bytes()).await {
+                                        error!(client = %client_addr, "Failed to send FormErr TCP response length: {}", e_send);
+                                        break;
+                                    }
+                                    if let Err(e_send) = stream.write_all(&response_bytes).await {
+                                        error!(client = %client_addr, "Failed to send FormErr TCP response body: {}", e_send);
                                     }
                                 }
                                 break;

@@ -6,12 +6,12 @@ DNSPX is a configurable DNS proxy and resolver designed for local development an
 
 [![CI/CD Pipeline](https://github.com/marcelwenner/dnspx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marcelwenner/dnspx/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.9.1-blue)
-![Tests](https://img.shields.io/badge/tests-334%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 ## 🚀 Production Readiness
 
-DNSPX is **thoroughly tested** with **334 comprehensive tests** covering all major functionality including AWS integration, DNS processing, caching, and error handling scenarios.
+DNSPX is **thoroughly tested** with **351 comprehensive tests** covering all major functionality including AWS integration, DNS processing, caching, and error handling scenarios.
 
 ### ✅ Robust AWS Integration
 AWS service discovery is **extensively tested** with comprehensive integration tests covering:
@@ -86,6 +86,11 @@ For security considerations and known vulnerabilities, please see [SECURITY.md](
     *   `--tui`: Launch the TUI dashboard.
     *   `--cli-only`: Run in a simple command-line mode without the TUI.
 
+### 🌐 Split-DNS Setup Helper
+*   **Platform-Specific Commands:** Generates commands for configuring your OS to route only specific domains through DNSPX, while other DNS queries go to your system's default resolver.
+*   **Supported Platforms:** Windows (NRPT), macOS (/etc/resolver), Linux (systemd-resolved).
+*   **Domain Detection:** Automatically extracts domains from routing rules or uses explicit configuration.
+
 ## 🚀 Installation & Usage
 
 ### Prerequisites
@@ -113,6 +118,32 @@ cargo build --release
 # Run in simple CLI mode (no TUI dashboard)
 ./target/release/dnspx --cli-only
 ```
+
+### Split-DNS Setup
+The `split-dns-setup` command generates platform-specific commands for configuring your OS to route only specific domains through DNSPX. This is useful for corporate environments where you want AWS/internal traffic to go through DNSPX while other DNS queries use the system resolver.
+
+```bash
+# In the DNSPX CLI, run:
+dnspx> split-dns-setup
+
+# Output as JSON for scripting:
+dnspx> split-dns-setup --json
+
+# Print only the effective domains (one per line):
+dnspx> split-dns-setup --print-domains
+```
+
+**Explicit Domain Configuration (Recommended):**
+```toml
+# In dnspx_config.toml
+[split_dns]
+domains = ["amazonaws.com", "aws.amazon.com", "elasticbeanstalk.com"]
+```
+
+**Platform Notes:**
+- **Windows (NRPT):** Requires port 53. Use `Add-DnsClientNrptRule` in PowerShell (Admin).
+- **macOS:** Uses `/etc/resolver/` files. Supports custom ports.
+- **Linux:** Uses `systemd-resolved`. Supports custom ports.
 
 ## ⚙️ Configuration
 
@@ -154,7 +185,7 @@ serve_stale_max_ttl = "1h"          # Max age of stale entry to serve
 # [[routing_rules]]
 # name = "Block Ads"
 # domain_pattern = "(^|\\.)adservice\\.google\\.com$" # Regex pattern
-# action = "Block" # "Forward", "Block", "Allow", "ResolveLocal", "Refuse"
+# action = "Block" # "Forward", "Block", "Allow", "ResolveLocal", "Refuse", "Servfail"
 # invert_match = false # Optional: if true, rule applies to non-matching domains
 
 # [[routing_rules]]
@@ -216,6 +247,11 @@ query_log_enabled = false           # If true, logs every DNS query
 [cli]
 enable_colors = true                # Enable/disable colors in CLI/TUI output
 status_refresh_interval_secs = 5    # TUI status panel refresh interval
+
+# Split-DNS configuration (optional)
+# Used by the split-dns-setup command to generate OS-specific routing commands
+# [split_dns]
+# domains = ["amazonaws.com", "aws.amazon.com", "elasticbeanstalk.com"]
 ```
 
 ### Key Configuration Parameters:
@@ -225,7 +261,7 @@ status_refresh_interval_secs = 5    # TUI status panel refresh interval
 *   **`routing_rules`**: An array of rules. Each rule has:
     *   `name`: A descriptive name.
     *   `domain_pattern`: A regex pattern to match domain names.
-    *   `action`: What to do if the pattern matches (`Forward`, `Block`, `Allow`, `ResolveLocal`, `Refuse`). Use `Refuse` to reply with REFUSED and force clients to try their secondary resolver.
+    *   `action`: What to do if the pattern matches (`Forward`, `Block`, `Allow`, `ResolveLocal`, `Refuse`, `Servfail`). Use `Refuse` to reply with REFUSED and force clients to try their secondary resolver. Use `Servfail` to reply with SERVFAIL.
     *   `nameservers` (for `Forward`): Specific upstreams for this rule.
 *   **`cache`**: Configures caching behavior (TTL, capacity).
 *   **`updates`**: Configures automatic update checking and installation.
@@ -257,12 +293,12 @@ DNSPX listens on the configured port (default 53) for UDP and TCP DNS queries. R
 
 ## 🛠️ Development
 
-### 🧪 Comprehensive Testing (334 Tests)
+### 🧪 Comprehensive Testing (351 Tests)
 
-DNSPX includes an extensive test suite with **334 automated tests** ensuring reliability and correctness:
+DNSPX includes an extensive test suite with **351 automated tests** ensuring reliability and correctness:
 
 ```bash
-# Run all tests (334 tests covering all functionality)
+# Run all tests (351 tests covering all functionality)
 cargo test
 
 # Run AWS integration tests specifically  
@@ -373,6 +409,6 @@ Contributions are welcome! Please feel free to:
 
 Please follow standard GitHub Fork & Pull Request workflows. Ensure your code:
 - Is formatted with `rustfmt`
-- Passes all **334 tests** with `cargo test`
+- Passes all **351 tests** with `cargo test`
 - Passes linting with `cargo clippy --all-targets --all-features -- -D warnings`
 - Includes appropriate test coverage for new functionality

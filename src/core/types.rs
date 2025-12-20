@@ -82,6 +82,12 @@ pub(crate) enum MessageLevel {
     Trace,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SplitDnsSetupOptions {
+    pub json_output: bool,
+    pub print_domains_only: bool,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum CliCommand {
     Status,
@@ -92,6 +98,7 @@ pub(crate) enum CliCommand {
     UpdateInstall,
     UpdateStatus,
     UpdateRollback,
+    SplitDnsSetup(SplitDnsSetupOptions),
     Help,
     UpdateHelp,
     Exit,

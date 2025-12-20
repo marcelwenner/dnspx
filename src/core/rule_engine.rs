@@ -119,6 +119,7 @@ impl RuleEngine {
                     RuleAction::Allow => return Some(ResolutionInstruction::Allow),
                     RuleAction::ResolveLocal => return Some(ResolutionInstruction::ResolveLocal),
                     RuleAction::Refuse => return Some(ResolutionInstruction::Refuse),
+                    RuleAction::Servfail => return Some(ResolutionInstruction::Servfail),
                 }
             }
         }
@@ -562,6 +563,27 @@ mod tests {
                 .determine_resolution_instruction(&question)
                 .await;
             assert_matches!(result, Some(ResolutionInstruction::Refuse));
+        }
+
+        #[tokio::test]
+        async fn test_rule_engine_servfail_action() {
+            let rule = create_rule_config(
+                "servfail_rule",
+                "^servfailme\\.com$",
+                RuleAction::Servfail,
+                None,
+                false,
+                ResolverStrategy::First,
+                500,
+            );
+            let app_config = create_app_config(vec![rule], None, None);
+            let rule_engine = RuleEngine::new(Arc::new(RwLock::new(app_config)));
+            let question = create_test_question("servfailme.com", RecordType::A);
+
+            let result = rule_engine
+                .determine_resolution_instruction(&question)
+                .await;
+            assert_matches!(result, Some(ResolutionInstruction::Servfail));
         }
 
         #[tokio::test]

@@ -113,6 +113,7 @@ mod tests {
             logging: LoggingConfig::default(),
             cli: CliConfig::default(),
             update: None,
+            split_dns: None,
         }
     }
 

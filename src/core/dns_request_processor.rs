@@ -138,7 +138,13 @@ impl DnsRequestProcessor {
                     "RefuseUnmatched"
                 }
             }
-            ResolutionInstruction::Servfail => source_str = "ServfailUnmatched",
+            ResolutionInstruction::Servfail => {
+                source_str = if instruction_from_rule {
+                    "ServfailRule"
+                } else {
+                    "ServfailUnmatched"
+                }
+            }
         };
 
         let mut initial_upstream_response_result: Result<DnsMessage, ResolveError> =
@@ -200,7 +206,11 @@ impl DnsRequestProcessor {
                 let response =
                     DnsMessage::new_response(original_query_message, ResponseCode::ServFail);
                 let latency_ms = start_time.elapsed().as_millis();
-                event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail (unmatched)");
+                if instruction_from_rule {
+                    event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail by rule");
+                } else {
+                    event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail (unmatched)");
+                }
                 return Ok(response);
             }
             ResolutionInstruction::ResolveLocal => {
@@ -664,6 +674,7 @@ mod integration_tests {
             logging: LoggingConfig::default(),
             cli: CliConfig::default(),
             update: None,
+            split_dns: None,
         }
     }
 
@@ -701,6 +712,45 @@ mod integration_tests {
             logging: LoggingConfig::default(),
             cli: CliConfig::default(),
             update: None,
+            split_dns: None,
+        }
+    }
+
+    fn create_test_config_with_servfail_rule(domain_to_servfail: &str) -> AppConfig {
+        let servfail_rule = RuleConfig {
+            name: "servfail_specific_domain_rule".to_string(),
+            domain_pattern: HashableRegex(
+                Regex::new(&format!("^{}$", regex::escape(domain_to_servfail)))
+                    .expect("Invalid regex in test rule setup"),
+            ),
+            action: RuleAction::Servfail,
+            nameservers: None,
+            strategy: ResolverStrategy::First,
+            timeout: Duration::from_secs(1),
+            doh_compression_mutation: false,
+            source_list_url: None,
+            invert_match: false,
+        };
+
+        AppConfig {
+            server: ServerConfig::default(),
+            default_resolver: DefaultResolverConfig::default(),
+            routing_rules: vec![servfail_rule],
+            local_hosts: None,
+            cache: CacheConfig {
+                enabled: false,
+                max_capacity: 0,
+                min_ttl: Duration::from_secs(1),
+                max_ttl: Duration::from_secs(1),
+                serve_stale_if_error: false,
+                serve_stale_max_ttl: Duration::from_secs(1),
+            },
+            http_proxy: None,
+            aws: None,
+            logging: LoggingConfig::default(),
+            cli: CliConfig::default(),
+            update: None,
+            split_dns: None,
         }
     }
 
@@ -904,6 +954,60 @@ mod integration_tests {
         }
     }
 
+    mod servfail_action_integration {
+        use super::*;
+        use crate::core::types::ProtocolType;
+        use crate::ports::DnsQueryService;
+
+        #[tokio::test]
+        async fn test_processor_servfail_rule_returns_servfail_and_no_upstream_call() {
+            let domain_to_servfail = "servfail.com";
+            let app_config = create_test_config_with_servfail_rule(domain_to_servfail);
+
+            let mock_upstream_resolver = MockUpstreamResolver::new();
+
+            let processor = setup_processor_with_config(app_config, mock_upstream_resolver).await;
+
+            let query_id = 456;
+            let query_msg_original =
+                DnsMessage::new_query(query_id, domain_to_servfail, RecordType::A)
+                    .expect("Failed to create query message");
+            let query_bytes =
+                serialize_dns_message(&query_msg_original).expect("Failed to serialize query");
+
+            let client_addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+            let protocol = ProtocolType::Udp;
+
+            let response_bytes_result = processor
+                .process_query(query_bytes, client_addr, protocol)
+                .await;
+
+            assert_matches!(
+                response_bytes_result,
+                Ok(_),
+                "Processing query should succeed overall"
+            );
+            let response_bytes = response_bytes_result.unwrap();
+            let response_message =
+                parse_dns_message(&response_bytes).expect("Should be able to parse DNS response");
+
+            assert_eq!(
+                response_message.id(),
+                query_id,
+                "Response ID should match query ID"
+            );
+            assert_eq!(
+                response_message.response_code(),
+                ResponseCode::ServFail,
+                "Response code should be ServFail for a servfail rule"
+            );
+            assert!(
+                response_message.answers().next().is_none(),
+                "There should be no answer records for a servfail response"
+            );
+        }
+    }
+
     mod end_to_end_request_processing {
         use super::*;
         use crate::core::types::ProtocolType;
@@ -1095,6 +1199,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1117,6 +1222,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1145,6 +1251,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1195,6 +1302,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1446,6 +1554,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
     }

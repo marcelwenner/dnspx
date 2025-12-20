@@ -320,6 +320,85 @@ impl TuiApp {
         }
     }
 
+    /// Handle scrollable popup key events. Returns true if key was handled.
+    fn handle_scrollable_popup_key(
+        key_code: crossterm::event::KeyCode,
+        scroll_offset: &mut u16,
+        total_lines: usize,
+        view_height: u16,
+    ) -> bool {
+        use crossterm::event::KeyCode;
+        let view_height_usize = view_height as usize;
+        match key_code {
+            KeyCode::Up => {
+                *scroll_offset = scroll_offset.saturating_sub(1);
+                true
+            }
+            KeyCode::Down => {
+                if total_lines > view_height_usize && view_height_usize > 0 {
+                    let max_scroll = (total_lines - view_height_usize) as u16;
+                    *scroll_offset = scroll_offset.saturating_add(1).min(max_scroll);
+                }
+                true
+            }
+            KeyCode::PageUp => {
+                let page_size = view_height.saturating_sub(1).max(1);
+                *scroll_offset = scroll_offset.saturating_sub(page_size);
+                true
+            }
+            KeyCode::PageDown => {
+                if total_lines > view_height_usize && view_height_usize > 0 {
+                    let page_size = view_height.saturating_sub(1).max(1);
+                    let max_scroll = (total_lines - view_height_usize) as u16;
+                    *scroll_offset = scroll_offset.saturating_add(page_size).min(max_scroll);
+                }
+                true
+            }
+            KeyCode::Home => {
+                *scroll_offset = 0;
+                true
+            }
+            KeyCode::End => {
+                if total_lines > view_height_usize && view_height_usize > 0 {
+                    *scroll_offset = (total_lines - view_height_usize) as u16;
+                } else {
+                    *scroll_offset = 0;
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle global shortcuts available in popup views. Returns true if handled.
+    async fn handle_popup_global_shortcut(
+        &mut self,
+        key_event: &crossterm::event::KeyEvent,
+    ) -> bool {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        match key_event.code {
+            KeyCode::Char('h') | KeyCode::Char('?')
+                if !key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.toggle_help_popup();
+                true
+            }
+            KeyCode::Char('l') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_license_popup();
+                true
+            }
+            KeyCode::Char('n') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_release_notes_popup();
+                true
+            }
+            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_cache_viewer().await;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn toggle_status_panel_view(&mut self) {
         self.current_status_panel_view = match self.current_status_panel_view {
             StatusPanelView::Dashboard => StatusPanelView::AwsScanner,
@@ -1570,178 +1649,25 @@ impl TuiApp {
                     }
 
                     if self.show_license_popup {
-                        match key_event.code {
-                            crossterm::event::KeyCode::Up => {
-                                self.license_popup_scroll_offset =
-                                    self.license_popup_scroll_offset.saturating_sub(1);
-                            }
-                            crossterm::event::KeyCode::Down => {
-                                let total_lines = self.license_text_lines.len();
-                                let view_height = self.license_popup_content_area_height as usize;
-                                if total_lines > view_height && view_height > 0 {
-                                    let max_scroll = (total_lines - view_height) as u16;
-                                    self.license_popup_scroll_offset = self
-                                        .license_popup_scroll_offset
-                                        .saturating_add(1)
-                                        .min(max_scroll);
-                                }
-                            }
-                            crossterm::event::KeyCode::PageUp => {
-                                let page_size = self
-                                    .license_popup_content_area_height
-                                    .saturating_sub(1)
-                                    .max(1);
-                                self.license_popup_scroll_offset =
-                                    self.license_popup_scroll_offset.saturating_sub(page_size);
-                            }
-                            crossterm::event::KeyCode::PageDown => {
-                                let page_size = self
-                                    .license_popup_content_area_height
-                                    .saturating_sub(1)
-                                    .max(1);
-                                let total_lines = self.license_text_lines.len();
-                                let view_height = self.license_popup_content_area_height as usize;
-                                if total_lines > view_height && view_height > 0 {
-                                    let max_scroll = (total_lines - view_height) as u16;
-                                    self.license_popup_scroll_offset = self
-                                        .license_popup_scroll_offset
-                                        .saturating_add(page_size)
-                                        .min(max_scroll);
-                                }
-                            }
-                            crossterm::event::KeyCode::Home => {
-                                self.license_popup_scroll_offset = 0;
-                            }
-                            crossterm::event::KeyCode::End => {
-                                let total_lines = self.license_text_lines.len();
-                                let view_height = self.license_popup_content_area_height as usize;
-                                if total_lines > view_height && view_height > 0 {
-                                    self.license_popup_scroll_offset =
-                                        (total_lines - view_height) as u16;
-                                } else {
-                                    self.license_popup_scroll_offset = 0;
-                                }
-                            }
-                            crossterm::event::KeyCode::Char('l')
-                                if key_event
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                self.toggle_license_popup();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('n')
-                                if key_event
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                self.toggle_release_notes_popup();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('v')
-                                if key_event
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                self.toggle_cache_viewer().await;
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('h')
-                            | crossterm::event::KeyCode::Char('?') => {
-                                self.toggle_help_popup();
-                                continue;
-                            }
-                            _ => {}
+                        if self.handle_popup_global_shortcut(&key_event).await {
+                            continue;
                         }
+                        Self::handle_scrollable_popup_key(
+                            key_event.code,
+                            &mut self.license_popup_scroll_offset,
+                            self.license_text_lines.len(),
+                            self.license_popup_content_area_height,
+                        );
                     } else if self.show_releasenotes_popup {
-                        match key_event.code {
-                            crossterm::event::KeyCode::Up => {
-                                self.releasenotes_popup_scroll_offset =
-                                    self.releasenotes_popup_scroll_offset.saturating_sub(1);
-                            }
-                            crossterm::event::KeyCode::Down => {
-                                let total_lines = self.release_notes_lines.len();
-                                let view_height =
-                                    self.releasenotes_popup_content_area_height as usize;
-
-                                if total_lines > view_height && view_height > 0 {
-                                    let max_scroll = (total_lines - view_height) as u16;
-                                    self.releasenotes_popup_scroll_offset = self
-                                        .releasenotes_popup_scroll_offset
-                                        .saturating_add(1)
-                                        .min(max_scroll);
-                                }
-                            }
-                            crossterm::event::KeyCode::PageUp => {
-                                let page_size = self
-                                    .releasenotes_popup_content_area_height
-                                    .saturating_sub(1)
-                                    .max(1);
-                                self.releasenotes_popup_scroll_offset = self
-                                    .releasenotes_popup_scroll_offset
-                                    .saturating_sub(page_size);
-                            }
-                            crossterm::event::KeyCode::PageDown => {
-                                let page_size = self
-                                    .releasenotes_popup_content_area_height
-                                    .saturating_sub(1)
-                                    .max(1);
-                                let total_lines = self.release_notes_lines.len();
-                                let view_height =
-                                    self.releasenotes_popup_content_area_height as usize;
-                                if total_lines > view_height && view_height > 0 {
-                                    let max_scroll = (total_lines - view_height) as u16;
-                                    self.releasenotes_popup_scroll_offset = self
-                                        .releasenotes_popup_scroll_offset
-                                        .saturating_add(page_size)
-                                        .min(max_scroll);
-                                }
-                            }
-                            crossterm::event::KeyCode::Home => {
-                                self.releasenotes_popup_scroll_offset = 0;
-                            }
-                            crossterm::event::KeyCode::End => {
-                                let total_lines = self.release_notes_lines.len();
-                                let view_height =
-                                    self.releasenotes_popup_content_area_height as usize;
-                                if total_lines > view_height && view_height > 0 {
-                                    self.releasenotes_popup_scroll_offset =
-                                        (total_lines - view_height) as u16;
-                                } else {
-                                    self.releasenotes_popup_scroll_offset = 0;
-                                }
-                            }
-                            crossterm::event::KeyCode::Char('n')
-                                if key_event
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                self.toggle_release_notes_popup();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('l')
-                                if key_event
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                self.toggle_license_popup();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('v')
-                                if key_event
-                                    .modifiers
-                                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                self.toggle_cache_viewer().await;
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('h')
-                            | crossterm::event::KeyCode::Char('?') => {
-                                self.toggle_help_popup();
-                                continue;
-                            }
-                            _ => {}
+                        if self.handle_popup_global_shortcut(&key_event).await {
+                            continue;
                         }
+                        Self::handle_scrollable_popup_key(
+                            key_event.code,
+                            &mut self.releasenotes_popup_scroll_offset,
+                            self.release_notes_lines.len(),
+                            self.releasenotes_popup_content_area_height,
+                        );
                     } else if self.input_mode == InputMode::AwsProfileSetupForm {
                         self.handle_aws_profile_form_input(key_event).await;
                     } else if self.show_cache_viewer
@@ -2116,6 +2042,38 @@ impl TuiApp {
         }
     }
 
+    /// Get the current value for a cache add step from pending data.
+    fn get_cache_add_step_value(&self, step: &CacheAddStep) -> String {
+        match step {
+            CacheAddStep::PromptName => self.pending_cache_add_data.name.clone(),
+            CacheAddStep::PromptValueA => self
+                .pending_cache_add_data
+                .value_a
+                .map_or(String::new(), |ip| ip.to_string()),
+            CacheAddStep::PromptValueAAAA => self
+                .pending_cache_add_data
+                .value_aaaa
+                .map_or(String::new(), |ip| ip.to_string()),
+            CacheAddStep::PromptValueCNAME => self
+                .pending_cache_add_data
+                .value_cname
+                .clone()
+                .unwrap_or_default(),
+            CacheAddStep::PromptValueTXT => self
+                .pending_cache_add_data
+                .value_txt
+                .as_ref()
+                .and_then(|v| v.first())
+                .cloned()
+                .unwrap_or_default(),
+            CacheAddStep::PromptTTL => self
+                .pending_cache_add_data
+                .ttl_seconds
+                .map_or(String::new(), |t| t.to_string()),
+            _ => String::new(),
+        }
+    }
+
     fn set_add_cache_step(&mut self, next_step: Option<CacheAddStep>) {
         if let Some(current) = &self.current_add_cache_step {
             if next_step.as_ref() != Some(current) {
@@ -2129,34 +2087,7 @@ impl TuiApp {
         self.cache_add_error = None;
 
         if let Some(step) = &self.current_add_cache_step {
-            self.cache_add_input_buffer = match step {
-                CacheAddStep::PromptName => self.pending_cache_add_data.name.clone(),
-                CacheAddStep::PromptValueA => self
-                    .pending_cache_add_data
-                    .value_a
-                    .map_or(String::new(), |ip| ip.to_string()),
-                CacheAddStep::PromptValueAAAA => self
-                    .pending_cache_add_data
-                    .value_aaaa
-                    .map_or(String::new(), |ip| ip.to_string()),
-                CacheAddStep::PromptValueCNAME => self
-                    .pending_cache_add_data
-                    .value_cname
-                    .clone()
-                    .unwrap_or_default(),
-                CacheAddStep::PromptValueTXT => self
-                    .pending_cache_add_data
-                    .value_txt
-                    .as_ref()
-                    .and_then(|v| v.first())
-                    .cloned()
-                    .unwrap_or_default(),
-                CacheAddStep::PromptTTL => self
-                    .pending_cache_add_data
-                    .ttl_seconds
-                    .map_or(String::new(), |t| t.to_string()),
-                _ => String::new(),
-            };
+            self.cache_add_input_buffer = self.get_cache_add_step_value(step);
         }
     }
 
@@ -2201,34 +2132,7 @@ impl TuiApp {
             self.cache_add_input_buffer.clear();
             self.cache_add_error = None;
             if let Some(step_to_fill) = &self.current_add_cache_step {
-                self.aws_form_current_input_buffer = match step_to_fill {
-                    CacheAddStep::PromptName => self.pending_cache_add_data.name.clone(),
-                    CacheAddStep::PromptValueA => self
-                        .pending_cache_add_data
-                        .value_a
-                        .map_or(String::new(), |ip| ip.to_string()),
-                    CacheAddStep::PromptValueAAAA => self
-                        .pending_cache_add_data
-                        .value_aaaa
-                        .map_or(String::new(), |ip| ip.to_string()),
-                    CacheAddStep::PromptValueCNAME => self
-                        .pending_cache_add_data
-                        .value_cname
-                        .clone()
-                        .unwrap_or_default(),
-                    CacheAddStep::PromptValueTXT => self
-                        .pending_cache_add_data
-                        .value_txt
-                        .as_ref()
-                        .and_then(|v| v.first())
-                        .cloned()
-                        .unwrap_or_default(),
-                    CacheAddStep::PromptTTL => self
-                        .pending_cache_add_data
-                        .ttl_seconds
-                        .map_or(String::new(), |t| t.to_string()),
-                    _ => String::new(),
-                };
+                self.cache_add_input_buffer = self.get_cache_add_step_value(step_to_fill);
             }
         } else {
             self.show_add_cache_entry_modal = false;

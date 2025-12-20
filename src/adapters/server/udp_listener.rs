@@ -1,5 +1,5 @@
+use super::{create_error_response, is_client_whitelisted};
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{DnsMessage as AppDnsMessage, parse_dns_message, serialize_dns_message};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
 use hickory_proto::op::ResponseCode;
 use std::sync::Arc;
@@ -41,15 +41,7 @@ pub(crate) async fn run_udp_listener(
 
                         tokio::spawn(
                             async move {
-                                let whitelisted = {
-                                    let guard = app_config_clone.read().await;
-                                    match &guard.server.network_whitelist {
-                                        Some(list) => list.iter().any(|net| net.contains(client_addr.ip())),
-                                        None => true,
-                                    }
-                                };
-
-                                if !whitelisted {
+                                if !is_client_whitelisted(&app_config_clone, client_addr.ip()).await {
                                     warn!(client = %client_addr, "Client IP not in whitelist, dropping UDP packet.");
                                     return;
                                 }
@@ -62,15 +54,10 @@ pub(crate) async fn run_udp_listener(
                                     }
                                     Err(e) => {
                                         error!(client = %client_addr, "Error processing UDP DNS query: {}", e);
-                                        if let Ok(query_msg) = parse_dns_message(&data) {
-                                            let err_response = AppDnsMessage::new_response(&query_msg, ResponseCode::FormErr);
-                                            if let Ok(response_bytes) = serialize_dns_message(&err_response)
-                                                && let Err(e_send) = socket_clone
-                                                    .send_to(&response_bytes, client_addr)
-                                                    .await
-                                            {
-                                                error!(client = %client_addr, "Failed to send FormErr UDP response: {}", e_send);
-                                            }
+                                        if let Some(response_bytes) = create_error_response(&data, ResponseCode::FormErr)
+                                            && let Err(e_send) = socket_clone.send_to(&response_bytes, client_addr).await
+                                        {
+                                            error!(client = %client_addr, "Failed to send FormErr UDP response: {}", e_send);
                                         }
                                     }
                                 }
