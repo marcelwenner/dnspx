@@ -730,10 +730,9 @@ impl UpdateManagerPort for VerifiedUpdateManager {
                     .and_then(|n| n.to_str())
                     .map(|s| s.starts_with("dnspx-") && s.ends_with(".backup"))
                     .unwrap_or(false)
+                && let Ok(metadata) = entry.metadata().await
             {
-                if let Ok(metadata) = entry.metadata().await {
-                    backup_files.push((path, metadata.modified().unwrap_or(std::time::UNIX_EPOCH)));
-                }
+                backup_files.push((path, metadata.modified().unwrap_or(std::time::UNIX_EPOCH)));
             }
         }
 

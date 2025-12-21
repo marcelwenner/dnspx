@@ -1,7 +1,12 @@
+#[cfg(feature = "aws")]
 use crate::adapters::aws::types::AwsDiscoveredEndpoint;
+#[cfg(not(feature = "aws"))]
+use crate::adapters::aws::stub::AwsDiscoveredEndpoint;
+use crate::adapters::cli::debug_commands::{ResolveOptions, ResolutionTrace};
 use crate::aws_integration::scanner::DiscoveredAwsNetworkInfo;
 use crate::config::models::{
     AppConfig, AwsAccountConfig, AwsRoleConfig, DotNetLegacyConfig, HttpProxyConfig,
+    ResolverStrategy,
 };
 use crate::core::dns_cache::DnsCache;
 use crate::core::error::{
@@ -58,6 +63,7 @@ pub(crate) trait AppLifecycleManagerPort: Send + Sync {
     async fn get_app_status(&self) -> AppStatus;
     fn get_aws_config_provider(&self) -> Arc<dyn AwsConfigProvider>;
     fn get_update_manager(&self) -> Option<Arc<dyn UpdateManagerPort>>;
+    fn get_debug_resolver(&self) -> Option<Arc<dyn DebugResolverPort>>;
 
     async fn get_config_for_processor(&self) -> Arc<RwLock<AppConfig>>;
     fn increment_total_queries_processed(&self);
@@ -89,6 +95,7 @@ pub(crate) trait UpstreamResolver: Send + Sync {
         question: &DnsQuestion,
         upstream_servers: &[String],
         timeout: Duration,
+        strategy: ResolverStrategy,
     ) -> Result<DnsMessage, ResolveError>;
 
     async fn resolve_doh(
@@ -96,6 +103,7 @@ pub(crate) trait UpstreamResolver: Send + Sync {
         question: &DnsQuestion,
         upstream_urls: &[Url],
         timeout: Duration,
+        strategy: ResolverStrategy,
         http_proxy_config: Option<&HttpProxyConfig>,
     ) -> Result<DnsMessage, ResolveError>;
 }
@@ -203,4 +211,17 @@ pub(crate) trait UpdateManagerPort: Send + Sync {
     async fn rollback_update(&self) -> Result<UpdateResult, UpdateError>;
     fn get_current_version(&self) -> String;
     async fn is_rollback_available(&self) -> bool;
+}
+
+/// Port for debug DNS resolution with trace collection.
+/// Implemented by DnsRequestProcessor to provide debug resolve functionality.
+#[async_trait]
+pub(crate) trait DebugResolverPort: Send + Sync {
+    /// Resolve a DNS query and return a detailed trace of the resolution path.
+    async fn resolve_with_trace(
+        &self,
+        domain: &str,
+        record_type: &str,
+        options: ResolveOptions,
+    ) -> ResolutionTrace;
 }

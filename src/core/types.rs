@@ -1,4 +1,5 @@
 use crate::config::models::AppConfig;
+#[cfg(feature = "aws")]
 use aws_credential_types::Credentials as AwsCredentialsExternal;
 use chrono::{DateTime, Utc};
 
@@ -13,7 +14,14 @@ pub(crate) enum ProtocolType {
     Tcp,
 }
 
+#[cfg(feature = "aws")]
 pub(crate) type AwsCredentials = AwsCredentialsExternal;
+
+/// Stub type for AwsCredentials when aws feature is disabled.
+/// This allows code to compile but AWS functionality will not be available.
+#[cfg(not(feature = "aws"))]
+#[derive(Debug, Clone)]
+pub(crate) struct AwsCredentials;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct AccountScanError {
@@ -82,16 +90,32 @@ pub(crate) enum MessageLevel {
     Trace,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SplitDnsSetupOptions {
+    pub print_domains_only: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DebugResolveOptions {
+    pub domain: String,
+    pub record_type: String,
+    pub no_cache: bool,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum CliCommand {
     Status,
     ReloadConfig,
     TriggerAwsScan,
     GetConfig(Option<String>),
+    ConfigValidate,
+    ConfigPrintDefault,
+    DebugResolve(DebugResolveOptions),
     UpdateCheck,
     UpdateInstall,
     UpdateStatus,
     UpdateRollback,
+    SplitDnsSetup(SplitDnsSetupOptions),
     Help,
     UpdateHelp,
     Exit,

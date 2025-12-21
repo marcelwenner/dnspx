@@ -195,10 +195,10 @@ impl ConfigurationStore for JsonFileConfigAdapter {
 
     fn get_default_config_path(&self) -> Result<PathBuf, ConfigError> {
         let path = self.base_path.join(DEFAULT_CONFIG_FILE_NAME_V2);
-        if !path.is_absolute() {
-            if let Ok(abs_path) = std::env::current_dir().map(|p| p.join(&path)) {
-                return Ok(abs_path);
-            }
+        if !path.is_absolute()
+            && let Ok(abs_path) = std::env::current_dir().map(|p| p.join(&path))
+        {
+            return Ok(abs_path);
         }
         Ok(path)
     }

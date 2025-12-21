@@ -1,5 +1,5 @@
 use crate::adapters::aws::types::AwsDiscoveredEndpoint;
-use crate::config::models::{AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsRoleConfig};
+use crate::config::models::{AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsRoleConfig, ResolverStrategy};
 use crate::core::dns_cache::{CacheKey, DnsCache};
 use crate::core::error::{AwsApiError, ResolveError};
 use crate::core::types::{AccountScanError, AwsCredentials, AwsScannerStatus};
@@ -262,21 +262,20 @@ impl AwsVpcScannerTask {
             );
         }
 
-        if let Some(output_file) = &aws_global_config.output_file_name {
-            if !proxy_bypass_list_domains.is_empty() {
-                let bypass_content = Self::format_bypass_list(&proxy_bypass_list_domains);
-                match tokio::fs::write(output_file, bypass_content).await {
-                    Ok(_) => info!(
-                        "Successfully wrote AWS proxy bypass list to {:?}",
-                        output_file
-                    ),
-                    Err(e) => {
-                        let err_msg = format!(
-                            "Failed to write AWS proxy bypass list to {output_file:?}: {e}"
-                        );
-                        error!("{}", err_msg);
-                        accumulated_general_errors.push(err_msg);
-                    }
+        if let Some(output_file) = &aws_global_config.output_file_name
+            && !proxy_bypass_list_domains.is_empty()
+        {
+            let bypass_content = Self::format_bypass_list(&proxy_bypass_list_domains);
+            match tokio::fs::write(output_file, bypass_content).await {
+                Ok(_) => info!(
+                    "Successfully wrote AWS proxy bypass list to {:?}",
+                    output_file
+                ),
+                Err(e) => {
+                    let err_msg =
+                        format!("Failed to write AWS proxy bypass list to {output_file:?}: {e}");
+                    error!("{}", err_msg);
+                    accumulated_general_errors.push(err_msg);
                 }
             }
         }
@@ -314,20 +313,20 @@ impl AwsVpcScannerTask {
         role_config_opt: Option<&AwsRoleConfig>,
     ) -> Vec<String> {
         let mut regions = HashSet::new();
-        if let Some(role_conf) = role_config_opt {
-            if let Some(role_regions) = &role_conf.scan_regions {
-                regions.extend(role_regions.iter().cloned());
-            }
+        if let Some(role_conf) = role_config_opt
+            && let Some(role_regions) = &role_conf.scan_regions
+        {
+            regions.extend(role_regions.iter().cloned());
         }
-        if regions.is_empty() {
-            if let Some(acc_regions) = &account_config.scan_regions {
-                regions.extend(acc_regions.iter().cloned());
-            }
+        if regions.is_empty()
+            && let Some(acc_regions) = &account_config.scan_regions
+        {
+            regions.extend(acc_regions.iter().cloned());
         }
-        if regions.is_empty() {
-            if let Some(default_region) = &aws_global_config.default_region {
-                regions.insert(default_region.clone());
-            }
+        if regions.is_empty()
+            && let Some(default_region) = &aws_global_config.default_region
+        {
+            regions.insert(default_region.clone());
         }
         if regions.is_empty() {
             warn!(
@@ -377,7 +376,7 @@ impl AwsVpcScannerTask {
 
         match self
             .vpc_internal_resolver
-            .resolve_dns(&question_a, &resolver_ip_strings, VPC_DNS_TIMEOUT)
+            .resolve_dns(&question_a, &resolver_ip_strings, VPC_DNS_TIMEOUT, ResolverStrategy::First)
             .await
         {
             Ok(response) => {
@@ -395,7 +394,7 @@ impl AwsVpcScannerTask {
 
         match self
             .vpc_internal_resolver
-            .resolve_dns(&question_aaaa, &resolver_ip_strings, VPC_DNS_TIMEOUT)
+            .resolve_dns(&question_aaaa, &resolver_ip_strings, VPC_DNS_TIMEOUT, ResolverStrategy::First)
             .await
         {
             Ok(response) => {

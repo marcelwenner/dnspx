@@ -203,6 +203,15 @@ pub(crate) struct AppConfig {
     #[serde(default)]
     pub cli: CliConfig,
     pub update: Option<UpdateConfig>,
+    pub split_dns: Option<SplitDnsConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub(crate) struct SplitDnsConfig {
+    /// Explicit list of domains to route through DNSPX.
+    /// If empty, domains are auto-extracted from routing rules.
+    #[serde(default)]
+    pub domains: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -219,8 +228,12 @@ fn default_unmatched_behavior() -> UnmatchedQueryBehavior {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ServerConfig {
-    #[serde(default = "default_listen_address")]
-    pub listen_address: String,
+    /// Deprecated: Use listen_addresses instead. Kept for backwards compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen_address: Option<String>,
+    /// List of addresses to listen on (e.g., ["0.0.0.0:53", "[::]:53"] for dual-stack)
+    #[serde(default)]
+    pub listen_addresses: Vec<String>,
     #[serde(default = "default_protocols")]
     pub protocols: Vec<ProtocolType>,
     pub network_whitelist: Option<Vec<IpNetwork>>,
@@ -228,10 +241,40 @@ pub(crate) struct ServerConfig {
     pub default_query_timeout: Duration,
     #[serde(default = "default_unmatched_behavior")]
     pub unmatched_query_behavior: UnmatchedQueryBehavior,
+    /// Search domains to append to unqualified names (e.g., ["home.arpa", "lan"])
+    #[serde(default)]
+    pub search_domains: Vec<String>,
+    /// Minimum number of dots in a query name to be considered absolute.
+    /// Names with fewer dots will have search_domains appended.
+    /// Default is 1, meaning "nas" becomes "nas.home.arpa" but "nas.home" is resolved as-is.
+    #[serde(default = "default_ndots")]
+    pub ndots: u8,
 }
 
-fn default_listen_address() -> String {
-    "0.0.0.0:53".to_string()
+fn default_ndots() -> u8 {
+    1
+}
+
+impl ServerConfig {
+    /// Returns the effective listen addresses, merging legacy listen_address with listen_addresses.
+    /// If both are empty, returns the default ["0.0.0.0:53"].
+    pub(crate) fn get_listen_addresses(&self) -> Vec<String> {
+        let mut addresses = self.listen_addresses.clone();
+
+        // Add legacy listen_address if present and not already in the list
+        if let Some(ref legacy_addr) = self.listen_address {
+            if !addresses.contains(legacy_addr) {
+                addresses.insert(0, legacy_addr.clone());
+            }
+        }
+
+        // Default if empty
+        if addresses.is_empty() {
+            addresses.push("0.0.0.0:53".to_string());
+        }
+
+        addresses
+    }
 }
 fn default_protocols() -> Vec<ProtocolType> {
     vec![ProtocolType::Udp, ProtocolType::Tcp]
@@ -243,11 +286,14 @@ fn default_query_timeout() -> Duration {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen_address: default_listen_address(),
+            listen_address: None,
+            listen_addresses: vec!["0.0.0.0:53".to_string()],
             protocols: default_protocols(),
             network_whitelist: None,
             default_query_timeout: default_query_timeout(),
             unmatched_query_behavior: default_unmatched_behavior(),
+            search_domains: Vec::new(),
+            ndots: default_ndots(),
         }
     }
 }
@@ -295,6 +341,7 @@ pub(crate) enum RuleAction {
     Allow,
     ResolveLocal,
     Refuse,
+    Servfail,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -330,6 +377,9 @@ pub(crate) enum HostsLoadBalancing {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct LocalHostsConfig {
     pub entries: BTreeMap<String, Vec<IpAddr>>,
+    /// CNAME aliases: maps hostname to target hostname (e.g., "www.home.arpa" -> "nas.home.arpa")
+    #[serde(default)]
+    pub cnames: BTreeMap<String, String>,
     pub file_path: Option<PathBuf>,
     #[serde(default)]
     pub watch_file: bool,
@@ -343,6 +393,7 @@ impl Default for LocalHostsConfig {
     fn default() -> Self {
         Self {
             entries: BTreeMap::new(),
+            cnames: BTreeMap::new(),
             file_path: None,
             watch_file: false,
             ttl: default_hosts_ttl(),

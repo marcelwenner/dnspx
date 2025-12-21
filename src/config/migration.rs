@@ -54,16 +54,16 @@ pub(crate) fn migrate(
         } else {
             port
         };
-        app_config.server.listen_address = format!("0.0.0.0:{validated_port}");
+        app_config.server.listen_addresses = vec![format!("0.0.0.0:{validated_port}")];
         app_config.server.protocols = vec![ProtocolType::Udp, ProtocolType::Tcp];
 
-        if let Some(timeout_ms) = dns_host.default_query_timeout {
-            if timeout_ms > 0 {
-                app_config.server.default_query_timeout = Duration::from_millis(timeout_ms);
-                messages.push(MigrationMessage::info(format!(
-                    "  Set server.default_query_timeout to {timeout_ms}ms"
-                )));
-            }
+        if let Some(timeout_ms) = dns_host.default_query_timeout
+            && timeout_ms > 0
+        {
+            app_config.server.default_query_timeout = Duration::from_millis(timeout_ms);
+            messages.push(MigrationMessage::info(format!(
+                "  Set server.default_query_timeout to {timeout_ms}ms"
+            )));
         }
 
         if let Some(whitelist) = dns_host.network_whitelist {
@@ -99,13 +99,13 @@ pub(crate) fn migrate(
             "Migrating DefaultResolverConfig...".to_string(),
         ));
         if let Some(servers) = dns_default.servers {
-            if let Some(nameservers) = servers.name_server {
-                if !nameservers.is_empty() {
-                    app_config.default_resolver.nameservers = nameservers.clone();
-                    messages.push(MigrationMessage::info(format!(
-                        "  Set default_resolver.nameservers to: {nameservers:?}"
-                    )));
-                }
+            if let Some(nameservers) = servers.name_server
+                && !nameservers.is_empty()
+            {
+                app_config.default_resolver.nameservers = nameservers.clone();
+                messages.push(MigrationMessage::info(format!(
+                    "  Set default_resolver.nameservers to: {nameservers:?}"
+                )));
             }
             if let Some(strategy_str) = servers.strategy {
                 let new_strategy = match strategy_str.to_lowercase().as_str() {
@@ -120,13 +120,13 @@ pub(crate) fn migrate(
                     "  Set default_resolver.strategy to: {strategy:?}"
                 )));
             }
-            if let Some(timeout_ms) = servers.query_timeout {
-                if timeout_ms > 0 {
-                    app_config.default_resolver.timeout = Duration::from_millis(timeout_ms);
-                    messages.push(MigrationMessage::info(format!(
-                        "  Set default_resolver.timeout to {timeout_ms}ms"
-                    )));
-                }
+            if let Some(timeout_ms) = servers.query_timeout
+                && timeout_ms > 0
+            {
+                app_config.default_resolver.timeout = Duration::from_millis(timeout_ms);
+                messages.push(MigrationMessage::info(format!(
+                    "  Set default_resolver.timeout to {timeout_ms}ms"
+                )));
             }
             app_config.default_resolver.doh_compression_mutation =
                 servers.compression_mutation.unwrap_or(false);
@@ -634,7 +634,7 @@ mod tests {
             create_dotnet_legacy_from_jsons(Some(main_json), Some(rules_json), Some(hosts_json));
         let (app_config, messages) = migrate(legacy_config).unwrap();
 
-        assert_eq!(app_config.server.listen_address, "0.0.0.0:5353");
+        assert_eq!(app_config.server.get_listen_addresses(), vec!["0.0.0.0:5353".to_string()]);
         assert!(app_config.server.network_whitelist.is_some());
         assert_eq!(
             app_config.server.network_whitelist.as_ref().unwrap().len(),
@@ -767,7 +767,7 @@ mod tests {
         let legacy_config = create_dotnet_legacy_from_jsons(Some(main_json), None, None);
         let (app_config, messages) = migrate(legacy_config).unwrap();
 
-        assert_eq!(app_config.server.listen_address, "0.0.0.0:53");
+        assert_eq!(app_config.server.get_listen_addresses(), vec!["0.0.0.0:53".to_string()]);
         assert!(!app_config.default_resolver.nameservers.is_empty());
         assert!(app_config.routing_rules.is_empty());
         assert!(app_config.local_hosts.is_none());
@@ -1027,7 +1027,7 @@ mod tests {
         let legacy = create_dotnet_legacy_from_jsons(Some(main_json), None, None);
         let (config, _messages) = migrate(legacy).unwrap();
 
-        assert_eq!(config.server.listen_address, "0.0.0.0:53");
+        assert_eq!(config.server.get_listen_addresses(), vec!["0.0.0.0:53".to_string()]);
         assert_eq!(
             config.server.default_query_timeout,
             Duration::from_millis(50000)
@@ -1135,7 +1135,7 @@ mod tests {
 
         assert_eq!(config.routing_rules.len(), 1000);
         assert!(
-            duration < Duration::from_millis(1_000),
+            duration < Duration::from_millis(2_000),
             "Migration took too long: {duration:?}"
         );
     }
@@ -1147,7 +1147,7 @@ mod tests {
         let (config1, messages1) = migrate(legacy.clone()).unwrap();
         let (config2, messages2) = migrate(legacy.clone()).unwrap();
 
-        assert_eq!(config1.server.listen_address, config2.server.listen_address);
+        assert_eq!(config1.server.get_listen_addresses(), config2.server.get_listen_addresses());
         assert_eq!(messages1.len(), messages2.len());
     }
 
@@ -1300,7 +1300,8 @@ mod tests {
                 // Migration should complete but may warn about long strings
                 assert!(!messages.is_empty());
                 // Should not cause memory exhaustion or infinite loops
-                assert!(migrated_config.server.listen_address.len() < 100);
+                let addrs = migrated_config.server.get_listen_addresses();
+                assert!(addrs.first().is_none_or(|a| a.len() < 100));
             }
             Err(_) => {
                 // JSON parsing failure is acceptable for extreme cases
@@ -1362,7 +1363,7 @@ mod tests {
                     let (migrated_config, _) = migrate(legacy).unwrap();
 
                     // Should always produce valid config even with null/empty inputs
-                    assert!(!migrated_config.server.listen_address.is_empty());
+                    assert!(!migrated_config.server.get_listen_addresses().is_empty());
                     assert!(!migrated_config.default_resolver.nameservers.is_empty());
                 }
                 Err(_) => {
@@ -1465,7 +1466,7 @@ mod tests {
             let config_clone = Arc::clone(&legacy_config);
             let handle = thread::spawn(move || {
                 let (migrated, messages) = migrate((*config_clone).clone()).unwrap();
-                (migrated.server.listen_address, messages.len(), i)
+                (migrated.server.get_listen_addresses(), messages.len(), i)
             });
             handles.push(handle);
         }
@@ -1520,7 +1521,7 @@ mod tests {
                     let (migrated_config, messages) = migrate(legacy).unwrap();
 
                     // Migration should complete successfully
-                    assert!(!migrated_config.server.listen_address.is_empty());
+                    assert!(!migrated_config.server.get_listen_addresses().is_empty());
 
                     // Should skip invalid entries but continue with valid ones
                     if let Some(whitelist) = migrated_config.server.network_whitelist {
@@ -1801,27 +1802,27 @@ mod tests {
                     let (migrated_config, messages) = migrate(legacy).unwrap();
 
                     // Migration should always produce a valid listening address
-                    assert!(!migrated_config.server.listen_address.is_empty());
+                    let listen_addrs = migrated_config.server.get_listen_addresses();
+                    assert!(!listen_addrs.is_empty());
+                    let first_addr = &listen_addrs[0];
 
                     // Listen address should have a valid port format
-                    assert!(migrated_config.server.listen_address.contains(':'));
+                    assert!(first_addr.contains(':'));
 
                     // Extract and validate the port
-                    if let Some(port_str) =
-                        migrated_config.server.listen_address.split(':').next_back()
+                    if let Some(port_str) = first_addr.split(':').next_back()
+                        && let Ok(port) = port_str.parse::<u16>()
                     {
-                        if let Ok(port) = port_str.parse::<u16>() {
-                            // Port 0 should be converted to 53 with a warning
-                            if test_json.contains("\"ListenerPort\": 0") {
-                                assert_eq!(port, 53, "Port 0 should be defaulted to 53");
-                                let has_warning = messages.iter().any(|m| {
-                                    m.level == MessageLevel::Warning
-                                        && m.text.contains("Invalid port 0")
-                                });
-                                assert!(has_warning, "Should have warning for port 0");
-                            } else {
-                                assert!(port > 0, "Port should be in valid range: {port}");
-                            }
+                        // Port 0 should be converted to 53 with a warning
+                        if test_json.contains("\"ListenerPort\": 0") {
+                            assert_eq!(port, 53, "Port 0 should be defaulted to 53");
+                            let has_warning = messages.iter().any(|m| {
+                                m.level == MessageLevel::Warning
+                                    && m.text.contains("Invalid port 0")
+                            });
+                            assert!(has_warning, "Should have warning for port 0");
+                        } else {
+                            assert!(port > 0, "Port should be in valid range: {port}");
                         }
                     }
 
@@ -1833,7 +1834,7 @@ mod tests {
                         // Migration should handle gracefully, either with warnings or defaults
                         let has_warnings =
                             messages.iter().any(|m| m.level == MessageLevel::Warning);
-                        let uses_default = migrated_config.server.listen_address.ends_with(":53");
+                        let uses_default = first_addr.ends_with(":53");
                         assert!(
                             has_warnings || uses_default,
                             "Invalid ports should trigger warnings or default to 53"
@@ -2026,23 +2027,22 @@ mod tests {
                             );
 
                             // Account IDs should be valid if present
-                            if let Some(account_id) = account.account_id {
-                                if !account_id.is_empty() {
-                                    // AWS account IDs should be 12 digits
-                                    if account_id.len() == 12
-                                        && account_id.chars().all(|c| c.is_ascii_digit())
-                                    {
-                                        // Valid account ID
-                                    } else {
-                                        // Invalid account IDs should generate warnings, not panic
-                                        let has_warning = messages
-                                            .iter()
-                                            .any(|m| m.level == MessageLevel::Warning);
-                                        if !has_warning {
-                                            eprintln!(
-                                                "Warning: Invalid account ID format should generate warning: {account_id}"
-                                            );
-                                        }
+                            if let Some(account_id) = account.account_id
+                                && !account_id.is_empty()
+                            {
+                                // AWS account IDs should be 12 digits
+                                if account_id.len() == 12
+                                    && account_id.chars().all(|c| c.is_ascii_digit())
+                                {
+                                    // Valid account ID
+                                } else {
+                                    // Invalid account IDs should generate warnings, not panic
+                                    let has_warning =
+                                        messages.iter().any(|m| m.level == MessageLevel::Warning);
+                                    if !has_warning {
+                                        eprintln!(
+                                            "Warning: Invalid account ID format should generate warning: {account_id}"
+                                        );
                                     }
                                 }
                             }

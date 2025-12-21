@@ -1,3 +1,6 @@
+use crate::adapters::cli::debug_commands::{
+    evaluate_rules_for_trace, ResolveOptions, ResolutionTrace,
+};
 use crate::config::models::UnmatchedQueryBehavior;
 use crate::core::dns_cache::{CacheKey, DnsCache};
 use crate::core::error::{DnsProcessingError, ResolveError};
@@ -5,9 +8,10 @@ use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::rule_engine::{ResolutionInstruction, RuleEngine};
 use crate::core::types::ProtocolType;
 use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
-use crate::ports::{AppLifecycleManagerPort, DnsQueryService, UpstreamResolver};
+use crate::ports::{AppLifecycleManagerPort, DebugResolverPort, DnsQueryService, UpstreamResolver};
 use async_trait::async_trait;
 use hickory_proto::op::ResponseCode;
+use hickory_proto::rr::RecordType;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -39,6 +43,32 @@ impl DnsRequestProcessor {
         }
     }
 
+    /// Expands a query name with search domains if it has fewer dots than ndots.
+    /// Returns a list of names to try in order (search domain expansions first, original last).
+    fn expand_with_search_domains(
+        name: &str,
+        search_domains: &[String],
+        ndots: u8,
+    ) -> Vec<String> {
+        // Remove trailing dot for counting
+        let name_for_counting = name.trim_end_matches('.');
+        let dot_count = name_for_counting.chars().filter(|c| *c == '.').count();
+
+        // If name has enough dots or no search domains configured, return just the original
+        if dot_count >= ndots as usize || search_domains.is_empty() {
+            return vec![name.to_string()];
+        }
+
+        // Build list: search domain expansions first, then original
+        let mut names = Vec::with_capacity(search_domains.len() + 1);
+        for domain in search_domains {
+            let expanded = format!("{name_for_counting}.{domain}");
+            names.push(expanded);
+        }
+        names.push(name.to_string());
+        names
+    }
+
     async fn resolve_single_question(
         &self,
         question: &DnsQuestion,
@@ -66,33 +96,30 @@ impl DnsRequestProcessor {
         }
 
         let cache_key = CacheKey::from_question(question);
-        if app_config.cache.enabled {
-            if let Some(cached_entry_arc) = self
+        if app_config.cache.enabled
+            && let Some(cached_entry_arc) = self
                 .dns_cache
                 .get(&cache_key, app_config.cache.serve_stale_if_error)
                 .instrument(tracing::info_span!("cache_get"))
                 .await
-            {
-                source_str = if cached_entry_arc.is_valid() {
-                    "Cache"
-                } else {
-                    "Cache(Stale)"
-                };
-                debug!("Resolved from cache for {}: {}", question.name, source_str);
-                let mut response = DnsMessage::new_response(
-                    original_query_message,
-                    cached_entry_arc.response_code,
-                );
-                for record_from_cache in &cached_entry_arc.records {
-                    let mut cloned_record = record_from_cache.clone();
-                    cloned_record.set_ttl(cached_entry_arc.current_ttl_remaining_secs());
-                    response.add_answer_record(cloned_record);
-                }
-                response.set_authoritative(false);
-                let latency_ms = start_time.elapsed().as_millis();
-                event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query resolved");
-                return Ok(response);
+        {
+            source_str = if cached_entry_arc.is_valid() {
+                "Cache"
+            } else {
+                "Cache(Stale)"
+            };
+            debug!("Resolved from cache for {}: {}", question.name, source_str);
+            let mut response =
+                DnsMessage::new_response(original_query_message, cached_entry_arc.response_code);
+            for record_from_cache in &cached_entry_arc.records {
+                let mut cloned_record = record_from_cache.clone();
+                cloned_record.set_ttl(cached_entry_arc.current_ttl_remaining_secs());
+                response.add_answer_record(cloned_record);
             }
+            response.set_authoritative(false);
+            let latency_ms = start_time.elapsed().as_millis();
+            event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query resolved");
+            return Ok(response);
         }
 
         let instruction_opt = self
@@ -141,7 +168,13 @@ impl DnsRequestProcessor {
                     "RefuseUnmatched"
                 }
             }
-            ResolutionInstruction::Servfail => source_str = "ServfailUnmatched",
+            ResolutionInstruction::Servfail => {
+                source_str = if instruction_from_rule {
+                    "ServfailRule"
+                } else {
+                    "ServfailUnmatched"
+                }
+            }
         };
 
         let mut initial_upstream_response_result: Result<DnsMessage, ResolveError> =
@@ -149,22 +182,22 @@ impl DnsRequestProcessor {
 
         match &instruction {
             ResolutionInstruction::ForwardToDns {
-                targets, timeout, ..
+                targets, timeout, strategy,
             } => {
                 initial_upstream_response_result = self
                     .upstream_resolver
-                    .resolve_dns(question, targets, *timeout)
+                    .resolve_dns(question, targets, *timeout, strategy.clone())
                     .await;
             }
             ResolutionInstruction::ForwardToDoH {
                 urls,
                 timeout,
+                strategy,
                 http_proxy,
-                ..
             } => {
                 initial_upstream_response_result = self
                     .upstream_resolver
-                    .resolve_doh(question, urls, *timeout, http_proxy.as_ref())
+                    .resolve_doh(question, urls, *timeout, strategy.clone(), http_proxy.as_ref())
                     .await;
             }
             ResolutionInstruction::ResolveViaAws { service_hint } => {
@@ -203,7 +236,11 @@ impl DnsRequestProcessor {
                 let response =
                     DnsMessage::new_response(original_query_message, ResponseCode::ServFail);
                 let latency_ms = start_time.elapsed().as_millis();
-                event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail (unmatched)");
+                if instruction_from_rule {
+                    event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail by rule");
+                } else {
+                    event!(Level::INFO, qname = %question.name, qtype = %question.record_type, rcode = ?response.response_code(), source = source_str, latency_ms, "Query servfail (unmatched)");
+                }
                 return Ok(response);
             }
             ResolutionInstruction::ResolveLocal => {
@@ -264,6 +301,7 @@ impl DnsRequestProcessor {
                                     question,
                                     &doh_urls,
                                     default_resolver_config.timeout,
+                                    default_resolver_config.strategy.clone(),
                                     app_config.http_proxy.as_ref(),
                                 )
                                 .await
@@ -273,6 +311,7 @@ impl DnsRequestProcessor {
                                     question,
                                     &dns_targets,
                                     default_resolver_config.timeout,
+                                    default_resolver_config.strategy.clone(),
                                 )
                                 .await
                         } else {
@@ -393,16 +432,59 @@ impl DnsQueryService for DnsRequestProcessor {
         }
         let first_question = first_question_opt.unwrap();
 
-        match self
-            .resolve_single_question(&first_question, &query_message_arc)
-            .await
-        {
-            Ok(response_message) => serialize_dns_message(&response_message)
+        // Get search domain configuration
+        let config_guard = self.app_lifecycle_access.get_config_for_processor().await;
+        let (search_domains, ndots) = {
+            let app_config = config_guard.read().await;
+            (app_config.server.search_domains.clone(), app_config.server.ndots)
+        };
+
+        // Expand query name with search domains if applicable
+        let names_to_try = Self::expand_with_search_domains(&first_question.name, &search_domains, ndots);
+
+        // Try each name in order, return first success (NOERROR with answers or NOERROR)
+        let mut last_response: Option<DnsMessage> = None;
+        for name in &names_to_try {
+            let expanded_question = DnsQuestion {
+                name: name.clone(),
+                record_type: first_question.record_type,
+                class: first_question.class,
+            };
+
+            match self
+                .resolve_single_question(&expanded_question, &query_message_arc)
+                .await
+            {
+                Ok(response_message) => {
+                    // Check if this is a successful response (not NXDOMAIN)
+                    if response_message.response_code() != ResponseCode::NXDomain {
+                        debug!(
+                            "Search domain expansion: {} resolved successfully (tried: {})",
+                            first_question.name, name
+                        );
+                        return serialize_dns_message(&response_message)
+                            .map_err(|e| DnsProcessingError::SerializeError(e.to_string()));
+                    }
+                    // Store NXDOMAIN response as fallback
+                    last_response = Some(response_message);
+                }
+                Err(e) => {
+                    // Log error but continue trying other names
+                    debug!(
+                        "Search domain expansion: {} failed for {}: {}",
+                        name, first_question.name, e
+                    );
+                }
+            }
+        }
+
+        // If we get here, all names failed - return the last NXDOMAIN or a ServFail
+        match last_response {
+            Some(response_message) => serialize_dns_message(&response_message)
                 .map_err(|e| DnsProcessingError::SerializeError(e.to_string())),
-            Err(e) => {
+            None => {
                 error!(
-                    "Internal error in resolve_single_question for {}: {}",
-                    first_question.name, e
+                    "All search domain expansions failed for {}", first_question.name
                 );
                 let error_response =
                     DnsMessage::new_response(&query_message_arc, ResponseCode::ServFail);
@@ -410,6 +492,240 @@ impl DnsQueryService for DnsRequestProcessor {
                     .map_err(|e_ser| DnsProcessingError::SerializeError(e_ser.to_string()))
             }
         }
+    }
+}
+
+#[async_trait]
+impl DebugResolverPort for DnsRequestProcessor {
+    async fn resolve_with_trace(
+        &self,
+        domain: &str,
+        record_type_str: &str,
+        options: ResolveOptions,
+    ) -> ResolutionTrace {
+        let start_time = Instant::now();
+
+        // Parse record type
+        let record_type = match record_type_str.to_uppercase().as_str() {
+            "A" => RecordType::A,
+            "AAAA" => RecordType::AAAA,
+            "MX" => RecordType::MX,
+            "TXT" => RecordType::TXT,
+            "CNAME" => RecordType::CNAME,
+            "NS" => RecordType::NS,
+            "SOA" => RecordType::SOA,
+            "PTR" => RecordType::PTR,
+            "SRV" => RecordType::SRV,
+            _ => RecordType::A, // Default to A
+        };
+
+        let config_guard = self.app_lifecycle_access.get_config_for_processor().await;
+        let app_config = config_guard.read().await;
+
+        // Create a question for resolution
+        let question = DnsQuestion {
+            name: domain.to_string(),
+            record_type,
+            class: hickory_proto::rr::DNSClass::IN,
+        };
+
+        // Create a mock query message for resolution
+        let query_message = match DnsMessage::new_query(1, domain, record_type) {
+            Ok(msg) => Arc::new(msg),
+            Err(e) => {
+                return ResolutionTrace {
+                    domain: domain.to_string(),
+                    record_type: record_type_str.to_string(),
+                    search_expansion: vec![],
+                    resolved_name: None,
+                    local_hosts_checked: false,
+                    local_hosts_matched: false,
+                    cname_chain: None,
+                    cache_checked: false,
+                    cache_hit: false,
+                    rules_evaluated: vec![],
+                    matched_rule: None,
+                    instruction: None,
+                    upstream_used: None,
+                    latency_ms: start_time.elapsed().as_millis() as u64,
+                    response_code: None,
+                    answers: vec![],
+                    error: Some(format!("Failed to create query message: {e}")),
+                };
+            }
+        };
+
+        let mut trace = ResolutionTrace {
+            domain: domain.to_string(),
+            record_type: record_type_str.to_string(),
+            search_expansion: vec![],
+            resolved_name: None,
+            local_hosts_checked: false,
+            local_hosts_matched: false,
+            cname_chain: None,
+            cache_checked: false,
+            cache_hit: false,
+            rules_evaluated: vec![],
+            matched_rule: None,
+            instruction: None,
+            upstream_used: None,
+            latency_ms: 0,
+            response_code: None,
+            answers: vec![],
+            error: None,
+        };
+
+        // Step 1: Check local hosts
+        trace.local_hosts_checked = app_config.local_hosts.is_some();
+        if let Some(local_response) = self.local_hosts_resolver.resolve(&question, &query_message).await {
+            trace.local_hosts_matched = true;
+            trace.response_code = Some(format!("{:?}", local_response.response_code()));
+            trace.answers = local_response
+                .answers()
+                .map(|r| format!("{} {} (TTL {}s)", r.record_type(), r.data(), r.ttl()))
+                .collect();
+            trace.latency_ms = start_time.elapsed().as_millis() as u64;
+            return trace;
+        }
+
+        // Step 2: Check cache (if enabled and not skipped)
+        let cache_key = CacheKey::from_question(&question);
+        if !options.skip_cache && app_config.cache.enabled {
+            trace.cache_checked = true;
+            if let Some(cached_entry) = self
+                .dns_cache
+                .get(&cache_key, app_config.cache.serve_stale_if_error)
+                .await
+            {
+                trace.cache_hit = true;
+                trace.response_code = Some(format!("{:?}", cached_entry.response_code));
+                trace.answers = cached_entry
+                    .records
+                    .iter()
+                    .map(|r| format!("{} {} (TTL {}s)", r.record_type(), r.data(), cached_entry.current_ttl_remaining_secs()))
+                    .collect();
+                trace.latency_ms = start_time.elapsed().as_millis() as u64;
+                return trace;
+            }
+        }
+
+        // Step 3: Evaluate rules
+        let (rules_evaluated, matched_rule_info) =
+            evaluate_rules_for_trace(domain, &app_config.routing_rules);
+        trace.rules_evaluated = rules_evaluated;
+
+        let instruction = match &matched_rule_info {
+            Some((idx, inst)) => {
+                trace.matched_rule = Some(app_config.routing_rules[*idx].name.clone());
+                trace.instruction = Some(format!("{inst:?}"));
+                inst.clone()
+            }
+            None => {
+                let default_inst = match app_config.server.unmatched_query_behavior {
+                    UnmatchedQueryBehavior::UseDefaultResolver => ResolutionInstruction::UseDefaultResolver,
+                    UnmatchedQueryBehavior::Refuse => ResolutionInstruction::Refuse,
+                    UnmatchedQueryBehavior::Servfail => ResolutionInstruction::Servfail,
+                };
+                trace.instruction = Some(format!("{default_inst:?} (default)"));
+                default_inst
+            }
+        };
+
+        // Step 4: Execute resolution based on instruction
+        let resolution_result = match &instruction {
+            ResolutionInstruction::Block => {
+                trace.response_code = Some("NXDOMAIN".to_string());
+                trace.latency_ms = start_time.elapsed().as_millis() as u64;
+                return trace;
+            }
+            ResolutionInstruction::Refuse => {
+                trace.response_code = Some("REFUSED".to_string());
+                trace.latency_ms = start_time.elapsed().as_millis() as u64;
+                return trace;
+            }
+            ResolutionInstruction::Servfail => {
+                trace.response_code = Some("SERVFAIL".to_string());
+                trace.latency_ms = start_time.elapsed().as_millis() as u64;
+                return trace;
+            }
+            ResolutionInstruction::ResolveLocal => {
+                trace.response_code = Some("NXDOMAIN".to_string());
+                trace.error = Some("ResolveLocal instruction but no local hosts match".to_string());
+                trace.latency_ms = start_time.elapsed().as_millis() as u64;
+                return trace;
+            }
+            ResolutionInstruction::ForwardToDns { targets, timeout, strategy } => {
+                trace.upstream_used = Some(targets.first().map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string()));
+                self.upstream_resolver.resolve_dns(&question, targets, *timeout, strategy.clone()).await
+            }
+            ResolutionInstruction::ForwardToDoH { urls, timeout, strategy, http_proxy } => {
+                trace.upstream_used = Some(urls.first().map(|u| u.to_string()).unwrap_or_else(|| "unknown".to_string()));
+                self.upstream_resolver.resolve_doh(&question, urls, *timeout, strategy.clone(), http_proxy.as_ref()).await
+            }
+            ResolutionInstruction::Allow | ResolutionInstruction::UseDefaultResolver => {
+                // Use default resolver
+                let default_resolver_config = &app_config.default_resolver;
+                let mut dns_targets = Vec::new();
+                let mut doh_urls = Vec::new();
+
+                for ns in &default_resolver_config.nameservers {
+                    if ns.starts_with("https://") {
+                        if let Ok(url) = Url::parse(ns) {
+                            doh_urls.push(url);
+                        }
+                    } else {
+                        dns_targets.push(ns.clone());
+                    }
+                }
+
+                if !doh_urls.is_empty() {
+                    trace.upstream_used = Some(doh_urls[0].to_string());
+                    self.upstream_resolver
+                        .resolve_doh(&question, &doh_urls, default_resolver_config.timeout, default_resolver_config.strategy.clone(), app_config.http_proxy.as_ref())
+                        .await
+                } else if !dns_targets.is_empty() {
+                    trace.upstream_used = Some(dns_targets[0].clone());
+                    self.upstream_resolver
+                        .resolve_dns(&question, &dns_targets, default_resolver_config.timeout, default_resolver_config.strategy.clone())
+                        .await
+                } else {
+                    Err(ResolveError::NoUpstreamServers)
+                }
+            }
+            ResolutionInstruction::ResolveViaAws { service_hint } => {
+                trace.error = Some(format!(
+                    "ResolveViaAws instruction for service '{service_hint}' - not resolvable via debug"
+                ));
+                trace.latency_ms = start_time.elapsed().as_millis() as u64;
+                return trace;
+            }
+        };
+
+        // Process resolution result
+        match resolution_result {
+            Ok(response) => {
+                trace.response_code = Some(format!("{:?}", response.response_code()));
+                trace.answers = response
+                    .answers()
+                    .map(|r| format!("{} {} (TTL {}s)", r.record_type(), r.data(), r.ttl()))
+                    .collect();
+
+                // Store in cache if enabled and not skipped
+                if !options.no_store && app_config.cache.enabled
+                    && (response.response_code() == ResponseCode::NoError
+                        || response.response_code() == ResponseCode::NXDomain)
+                    {
+                        self.dns_cache.insert(cache_key, &response).await;
+                    }
+            }
+            Err(e) => {
+                trace.error = Some(format!("Resolution failed: {e}"));
+                trace.response_code = Some("SERVFAIL".to_string());
+            }
+        }
+
+        trace.latency_ms = start_time.elapsed().as_millis() as u64;
+        trace
     }
 }
 
@@ -474,6 +790,7 @@ mod integration_tests {
             _question: &crate::dns_protocol::DnsQuestion,
             _upstream_servers: &[String],
             _timeout: Duration,
+            _strategy: ResolverStrategy,
         ) -> Result<DnsMessage, ResolveError> {
             let mut count = self.dns_call_count.lock().unwrap();
             *count += 1;
@@ -492,6 +809,7 @@ mod integration_tests {
             _question: &crate::dns_protocol::DnsQuestion,
             _upstream_urls: &[url::Url],
             _timeout: Duration,
+            _strategy: ResolverStrategy,
             _http_proxy_config: Option<&crate::config::models::HttpProxyConfig>,
         ) -> Result<DnsMessage, ResolveError> {
             let mut count = self.doh_call_count.lock().unwrap();
@@ -624,6 +942,10 @@ mod integration_tests {
             None
         }
 
+        fn get_debug_resolver(&self) -> Option<Arc<dyn crate::ports::DebugResolverPort>> {
+            None
+        }
+
         async fn get_config_for_processor(&self) -> Arc<RwLock<AppConfig>> {
             self.config.clone()
         }
@@ -667,6 +989,7 @@ mod integration_tests {
             logging: LoggingConfig::default(),
             cli: CliConfig::default(),
             update: None,
+            split_dns: None,
         }
     }
 
@@ -704,6 +1027,45 @@ mod integration_tests {
             logging: LoggingConfig::default(),
             cli: CliConfig::default(),
             update: None,
+            split_dns: None,
+        }
+    }
+
+    fn create_test_config_with_servfail_rule(domain_to_servfail: &str) -> AppConfig {
+        let servfail_rule = RuleConfig {
+            name: "servfail_specific_domain_rule".to_string(),
+            domain_pattern: HashableRegex(
+                Regex::new(&format!("^{}$", regex::escape(domain_to_servfail)))
+                    .expect("Invalid regex in test rule setup"),
+            ),
+            action: RuleAction::Servfail,
+            nameservers: None,
+            strategy: ResolverStrategy::First,
+            timeout: Duration::from_secs(1),
+            doh_compression_mutation: false,
+            source_list_url: None,
+            invert_match: false,
+        };
+
+        AppConfig {
+            server: ServerConfig::default(),
+            default_resolver: DefaultResolverConfig::default(),
+            routing_rules: vec![servfail_rule],
+            local_hosts: None,
+            cache: CacheConfig {
+                enabled: false,
+                max_capacity: 0,
+                min_ttl: Duration::from_secs(1),
+                max_ttl: Duration::from_secs(1),
+                serve_stale_if_error: false,
+                serve_stale_max_ttl: Duration::from_secs(1),
+            },
+            http_proxy: None,
+            aws: None,
+            logging: LoggingConfig::default(),
+            cli: CliConfig::default(),
+            update: None,
+            split_dns: None,
         }
     }
 
@@ -907,6 +1269,60 @@ mod integration_tests {
         }
     }
 
+    mod servfail_action_integration {
+        use super::*;
+        use crate::core::types::ProtocolType;
+        use crate::ports::DnsQueryService;
+
+        #[tokio::test]
+        async fn test_processor_servfail_rule_returns_servfail_and_no_upstream_call() {
+            let domain_to_servfail = "servfail.com";
+            let app_config = create_test_config_with_servfail_rule(domain_to_servfail);
+
+            let mock_upstream_resolver = MockUpstreamResolver::new();
+
+            let processor = setup_processor_with_config(app_config, mock_upstream_resolver).await;
+
+            let query_id = 456;
+            let query_msg_original =
+                DnsMessage::new_query(query_id, domain_to_servfail, RecordType::A)
+                    .expect("Failed to create query message");
+            let query_bytes =
+                serialize_dns_message(&query_msg_original).expect("Failed to serialize query");
+
+            let client_addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+            let protocol = ProtocolType::Udp;
+
+            let response_bytes_result = processor
+                .process_query(query_bytes, client_addr, protocol)
+                .await;
+
+            assert_matches!(
+                response_bytes_result,
+                Ok(_),
+                "Processing query should succeed overall"
+            );
+            let response_bytes = response_bytes_result.unwrap();
+            let response_message =
+                parse_dns_message(&response_bytes).expect("Should be able to parse DNS response");
+
+            assert_eq!(
+                response_message.id(),
+                query_id,
+                "Response ID should match query ID"
+            );
+            assert_eq!(
+                response_message.response_code(),
+                ResponseCode::ServFail,
+                "Response code should be ServFail for a servfail rule"
+            );
+            assert!(
+                response_message.answers().next().is_none(),
+                "There should be no answer records for a servfail response"
+            );
+        }
+    }
+
     mod end_to_end_request_processing {
         use super::*;
         use crate::core::types::ProtocolType;
@@ -1010,6 +1426,7 @@ mod integration_tests {
                 question: &crate::dns_protocol::DnsQuestion,
                 _upstream_servers: &[String],
                 _timeout: Duration,
+                _strategy: ResolverStrategy,
             ) -> Result<DnsMessage, ResolveError> {
                 {
                     let mut log = self.call_log.lock().unwrap();
@@ -1035,6 +1452,7 @@ mod integration_tests {
                 question: &crate::dns_protocol::DnsQuestion,
                 _upstream_urls: &[url::Url],
                 _timeout: Duration,
+                _strategy: ResolverStrategy,
                 _http_proxy_config: Option<&crate::config::models::HttpProxyConfig>,
             ) -> Result<DnsMessage, ResolveError> {
                 {
@@ -1098,6 +1516,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1120,6 +1539,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1130,6 +1550,7 @@ mod integration_tests {
                 routing_rules: vec![],
                 local_hosts: Some(crate::config::models::LocalHostsConfig {
                     entries: hosts.into_iter().collect(),
+                    cnames: std::collections::BTreeMap::new(),
                     file_path: None,
                     watch_file: false,
                     ttl: 300,
@@ -1148,6 +1569,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1198,6 +1620,7 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
         }
 
@@ -1449,7 +1872,72 @@ mod integration_tests {
                 logging: LoggingConfig::default(),
                 cli: CliConfig::default(),
                 update: None,
+                split_dns: None,
             }
+        }
+    }
+
+    mod search_domain_expansion {
+        use super::*;
+
+        #[test]
+        fn test_no_expansion_when_no_search_domains() {
+            let result = DnsRequestProcessor::expand_with_search_domains("nas", &[], 1);
+            assert_eq!(result, vec!["nas".to_string()]);
+        }
+
+        #[test]
+        fn test_no_expansion_when_enough_dots() {
+            let search_domains = vec!["home.arpa".to_string(), "lan".to_string()];
+            // ndots=1 means names with 1+ dots are treated as absolute
+            let result = DnsRequestProcessor::expand_with_search_domains("nas.home", &search_domains, 1);
+            assert_eq!(result, vec!["nas.home".to_string()]);
+        }
+
+        #[test]
+        fn test_expansion_with_single_search_domain() {
+            let search_domains = vec!["home.arpa".to_string()];
+            let result = DnsRequestProcessor::expand_with_search_domains("nas", &search_domains, 1);
+            assert_eq!(result, vec!["nas.home.arpa".to_string(), "nas".to_string()]);
+        }
+
+        #[test]
+        fn test_expansion_with_multiple_search_domains() {
+            let search_domains = vec!["home.arpa".to_string(), "lan".to_string(), "local".to_string()];
+            let result = DnsRequestProcessor::expand_with_search_domains("nas", &search_domains, 1);
+            assert_eq!(result, vec![
+                "nas.home.arpa".to_string(),
+                "nas.lan".to_string(),
+                "nas.local".to_string(),
+                "nas".to_string(),
+            ]);
+        }
+
+        #[test]
+        fn test_ndots_zero_expands_all() {
+            let search_domains = vec!["home.arpa".to_string()];
+            // ndots=0 means all names get expanded
+            let result = DnsRequestProcessor::expand_with_search_domains("nas.home", &search_domains, 0);
+            assert_eq!(result, vec!["nas.home".to_string()]);
+        }
+
+        #[test]
+        fn test_ndots_two_requires_two_dots() {
+            let search_domains = vec!["home.arpa".to_string()];
+            // ndots=2 means names need 2+ dots to be absolute
+            let result = DnsRequestProcessor::expand_with_search_domains("nas.local", &search_domains, 2);
+            assert_eq!(result, vec![
+                "nas.local.home.arpa".to_string(),
+                "nas.local".to_string(),
+            ]);
+        }
+
+        #[test]
+        fn test_trailing_dot_is_stripped_for_counting() {
+            let search_domains = vec!["home.arpa".to_string()];
+            // Trailing dot should be stripped for dot counting
+            let result = DnsRequestProcessor::expand_with_search_domains("nas.", &search_domains, 1);
+            assert_eq!(result, vec!["nas.home.arpa".to_string(), "nas.".to_string()]);
         }
     }
 }

@@ -113,15 +113,13 @@ impl AwsSdkVpcInfoProvider {
                     .and_then(|c| c.strip_prefix("VPC Endpoint ID: "))
                     .map(String::from);
 
-                if let Some(vpce_id) = vpce_id_from_comment {
-                    if let Some((vpce_ips, vpce_actual_vpc_id_opt)) = vpce_details_map.get(&vpce_id)
-                    {
-                        if vpc_id_filter.is_none_or(|filter_vpc| {
-                            vpce_actual_vpc_id_opt.as_deref() == Some(filter_vpc)
-                        }) {
-                            ips.extend_from_slice(vpce_ips);
-                        }
-                    }
+                if let Some(vpce_id) = vpce_id_from_comment
+                    && let Some((vpce_ips, vpce_actual_vpc_id_opt)) = vpce_details_map.get(&vpce_id)
+                    && vpc_id_filter.is_none_or(|filter_vpc| {
+                        vpce_actual_vpc_id_opt.as_deref() == Some(filter_vpc)
+                    })
+                {
+                    ips.extend_from_slice(vpce_ips);
                 }
             }
         }
@@ -165,39 +163,39 @@ impl AwsSdkVpcInfoProvider {
             match request_builder.send().await {
                 Ok(output) => {
                     for endpoint in output.resolver_endpoints() {
-                        if endpoint.direction() == Some(&ResolverEndpointDirection::Inbound) {
-                            if let Some(endpoint_id) = endpoint.id() {
-                                match client
-                                    .list_resolver_endpoint_ip_addresses()
-                                    .resolver_endpoint_id(endpoint_id)
-                                    .send()
-                                    .await
-                                {
-                                    Ok(ip_output) => {
-                                        for ip_address_response in ip_output.ip_addresses() {
-                                            if let Some(ip_str) = ip_address_response.ip() {
-                                                if let Ok(ip_addr) = IpAddr::from_str(ip_str) {
-                                                    discovered_ips.push(ip_addr);
-                                                    info!(
-                                                        "Discovered Route 53 Inbound Endpoint IP: {} for Endpoint ID: {}",
-                                                        ip_str, endpoint_id
-                                                    );
-                                                } else {
-                                                    warn!(
-                                                        "Failed to parse IP address: {} for R53 Inbound Endpoint {}",
-                                                        ip_str, endpoint_id
-                                                    );
-                                                }
-                                            }
+                        if endpoint.direction() == Some(&ResolverEndpointDirection::Inbound)
+                            && let Some(endpoint_id) = endpoint.id()
+                        {
+                            match client
+                                .list_resolver_endpoint_ip_addresses()
+                                .resolver_endpoint_id(endpoint_id)
+                                .send()
+                                .await
+                            {
+                                Ok(ip_output) => {
+                                    for ip_address_response in ip_output.ip_addresses() {
+                                        if let Some(ip_str) = ip_address_response.ip()
+                                            && let Ok(ip_addr) = IpAddr::from_str(ip_str)
+                                        {
+                                            discovered_ips.push(ip_addr);
+                                            info!(
+                                                "Discovered Route 53 Inbound Endpoint IP: {} for Endpoint ID: {}",
+                                                ip_str, endpoint_id
+                                            );
+                                        } else if let Some(ip_str) = ip_address_response.ip() {
+                                            warn!(
+                                                "Failed to parse IP address: {} for R53 Inbound Endpoint {}",
+                                                ip_str, endpoint_id
+                                            );
                                         }
                                     }
-                                    Err(e) => {
-                                        warn!(
-                                            "Failed to list IP addresses for R53 Inbound Endpoint {}: {}",
-                                            endpoint_id,
-                                            e.into_service_error()
-                                        );
-                                    }
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to list IP addresses for R53 Inbound Endpoint {}: {}",
+                                        endpoint_id,
+                                        e.into_service_error()
+                                    );
                                 }
                             }
                         }
@@ -367,10 +365,9 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                         for private_ip_addr_assoc in ni.private_ip_addresses() {
                                             if let Some(ip_str) =
                                                 private_ip_addr_assoc.private_ip_address()
+                                                && let Ok(ip_addr) = ip_str.parse::<IpAddr>()
                                             {
-                                                if let Ok(ip_addr) = ip_str.parse::<IpAddr>() {
-                                                    private_ips.push(ip_addr);
-                                                }
+                                                private_ips.push(ip_addr);
                                             }
                                         }
                                     }
@@ -437,45 +434,43 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
             match apigw_client.get_rest_apis().send().await {
                 Ok(output) => {
                     for api in output.items() {
-                        if let Some(ep_config) = api.endpoint_configuration() {
-                            if ep_config.types().iter().any(|t| t.as_str() == "PRIVATE") {
-                                if let Some(api_id) = api.id() {
-                                    let service_dns_name =
-                                        format!("{api_id}.execute-api.{region}.amazonaws.com");
-                                    let execute_api_vpce_service_name_pattern = "execute-api";
+                        if let Some(ep_config) = api.endpoint_configuration()
+                            && ep_config.types().iter().any(|t| t.as_str() == "PRIVATE")
+                            && let Some(api_id) = api.id()
+                        {
+                            let service_dns_name =
+                                format!("{api_id}.execute-api.{region}.amazonaws.com");
+                            let execute_api_vpce_service_name_pattern = "execute-api";
 
-                                    let mut vpc_id_for_apigw = None;
-                                    let vpce_ids_on_api = ep_config.vpc_endpoint_ids();
-                                    if let Some(first_vpce_id) = vpce_ids_on_api.first() {
-                                        if let Some((_, v_id)) = vpce_details_map.get(first_vpce_id)
-                                        {
-                                            vpc_id_for_apigw = v_id.clone();
-                                        }
-                                    }
-
-                                    let private_ips_for_apigw = Self::get_vpce_ips_for_service(
-                                        execute_api_vpce_service_name_pattern,
-                                        vpc_id_for_apigw.as_deref(),
-                                        region,
-                                        &raw_vpce_list,
-                                        &vpce_details_map,
-                                    );
-
-                                    all_discovered_endpoints.push(AwsDiscoveredEndpoint {
-                                        service_dns_name,
-                                        vpc_endpoint_dns_name: None,
-                                        private_ips: private_ips_for_apigw,
-                                        service_type: "APIGateway-Private".to_string(),
-                                        region: region.to_string(),
-                                        vpc_id: vpc_id_for_apigw,
-                                        comment: Some(format!(
-                                            "API Gateway ID: {}, Name: {}",
-                                            api_id,
-                                            api.name().unwrap_or_default()
-                                        )),
-                                    });
-                                }
+                            let mut vpc_id_for_apigw = None;
+                            let vpce_ids_on_api = ep_config.vpc_endpoint_ids();
+                            if let Some(first_vpce_id) = vpce_ids_on_api.first()
+                                && let Some((_, v_id)) = vpce_details_map.get(first_vpce_id)
+                            {
+                                vpc_id_for_apigw = v_id.clone();
                             }
+
+                            let private_ips_for_apigw = Self::get_vpce_ips_for_service(
+                                execute_api_vpce_service_name_pattern,
+                                vpc_id_for_apigw.as_deref(),
+                                region,
+                                &raw_vpce_list,
+                                &vpce_details_map,
+                            );
+
+                            all_discovered_endpoints.push(AwsDiscoveredEndpoint {
+                                service_dns_name,
+                                vpc_endpoint_dns_name: None,
+                                private_ips: private_ips_for_apigw,
+                                service_type: "APIGateway-Private".to_string(),
+                                region: region.to_string(),
+                                vpc_id: vpc_id_for_apigw,
+                                comment: Some(format!(
+                                    "API Gateway ID: {}, Name: {}",
+                                    api_id,
+                                    api.name().unwrap_or_default()
+                                )),
+                            });
                         }
                     }
                 }
@@ -714,19 +709,18 @@ impl AwsVpcInfoProvider for AwsSdkVpcInfoProvider {
                                 instance.instance_id().unwrap_or_default().to_string();
                             let vpc_id = instance.vpc_id().map(String::from);
                             let mut ips = Vec::new();
-                            if let Some(private_ip) = instance.private_ip_address() {
-                                if let Ok(ip_addr) = private_ip.parse() {
-                                    ips.push(ip_addr);
-                                }
+                            if let Some(private_ip) = instance.private_ip_address()
+                                && let Ok(ip_addr) = private_ip.parse()
+                            {
+                                ips.push(ip_addr);
                             }
                             for ni in instance.network_interfaces() {
                                 for private_ip_detail in ni.private_ip_addresses() {
-                                    if let Some(ip_str) = private_ip_detail.private_ip_address() {
-                                        if let Ok(ip_addr) = ip_str.parse() {
-                                            if !ips.contains(&ip_addr) {
-                                                ips.push(ip_addr);
-                                            }
-                                        }
+                                    if let Some(ip_str) = private_ip_detail.private_ip_address()
+                                        && let Ok(ip_addr) = ip_str.parse()
+                                        && !ips.contains(&ip_addr)
+                                    {
+                                        ips.push(ip_addr);
                                     }
                                 }
                             }

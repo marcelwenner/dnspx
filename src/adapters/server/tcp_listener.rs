@@ -1,11 +1,13 @@
+use super::{create_error_response, is_client_whitelisted};
+use crate::config::models::AppConfig;
 use crate::core::types::ProtocolType;
-use crate::dns_protocol::{DnsMessage as AppDnsMessage, parse_dns_message, serialize_dns_message};
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
 use hickory_proto::op::ResponseCode;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug, error, info, warn};
 
@@ -13,20 +15,12 @@ async fn handle_tcp_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
     dns_query_service: Arc<dyn DnsQueryService>,
-    app_config: Arc<tokio::sync::RwLock<crate::config::models::AppConfig>>,
+    app_config: Arc<RwLock<AppConfig>>,
     conn_cancellation_token: CancellationToken,
 ) {
     debug!(client = %client_addr, "New TCP connection established");
 
-    let whitelisted = {
-        let guard = app_config.read().await;
-        match &guard.server.network_whitelist {
-            Some(list) => list.iter().any(|net| net.contains(client_addr.ip())),
-            None => true,
-        }
-    };
-
-    if !whitelisted {
+    if !is_client_whitelisted(&app_config, client_addr.ip()).await {
         warn!(client = %client_addr, "Client IP not in whitelist, closing TCP connection.");
         let _ = stream.shutdown().await;
         return;
@@ -74,20 +68,14 @@ async fn handle_tcp_connection(
                             }
                             Err(e) => {
                                 error!(client = %client_addr, "Error processing TCP DNS query: {}", e);
-                                if let Ok(query_msg) = parse_dns_message(&query_buf) {
-                                    let err_response = AppDnsMessage::new_response(&query_msg, ResponseCode::FormErr);
-                                    if let Ok(response_bytes) = serialize_dns_message(&err_response) {
-                                        let response_len = response_bytes.len() as u16;
-
-                                        if let Err(e_send) = stream.write_all(&response_len.to_be_bytes()).await {
-                                            error!(client = %client_addr, "Failed to send FormErr TCP response length: {}", e_send);
-                                            break;
-                                        }
-
-
-                                        if let Err(e_send) = stream.write_all(&response_bytes).await {
-                                            error!(client = %client_addr, "Failed to send FormErr TCP response body: {}", e_send);
-                                        }
+                                if let Some(response_bytes) = create_error_response(&query_buf, ResponseCode::FormErr) {
+                                    let response_len = response_bytes.len() as u16;
+                                    if let Err(e_send) = stream.write_all(&response_len.to_be_bytes()).await {
+                                        error!(client = %client_addr, "Failed to send FormErr TCP response length: {}", e_send);
+                                        break;
+                                    }
+                                    if let Err(e_send) = stream.write_all(&response_bytes).await {
+                                        error!(client = %client_addr, "Failed to send FormErr TCP response body: {}", e_send);
                                     }
                                 }
                                 break;
@@ -114,23 +102,61 @@ pub(crate) async fn run_tcp_listener(
     dns_query_service: Arc<dyn DnsQueryService>,
 ) -> Result<(), std::io::Error> {
     let config_guard = app_lifecycle.get_config();
-    let listen_address = {
+    let listen_addresses = {
         let guard = config_guard.read().await;
-        guard.server.listen_address.clone()
+        guard.server.get_listen_addresses()
     };
 
+    let cancellation_token = app_lifecycle.get_cancellation_token();
+    let mut listener_handles = Vec::new();
+
+    for listen_address in listen_addresses {
+        let app_lifecycle_clone = Arc::clone(&app_lifecycle);
+        let dns_query_service_clone = Arc::clone(&dns_query_service);
+        let config_guard_clone = Arc::clone(&config_guard);
+        let token_clone = cancellation_token.clone();
+        let addr_clone = listen_address.clone();
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) = run_single_tcp_listener(
+                app_lifecycle_clone,
+                dns_query_service_clone,
+                config_guard_clone,
+                token_clone,
+                addr_clone,
+            )
+            .await
+            {
+                error!("TCP listener error: {}", e);
+            }
+        });
+        listener_handles.push(handle);
+    }
+
+    for handle in listener_handles {
+        let _ = handle.await;
+    }
+
+    Ok(())
+}
+
+async fn run_single_tcp_listener(
+    app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
+    dns_query_service: Arc<dyn DnsQueryService>,
+    config_guard: Arc<RwLock<AppConfig>>,
+    cancellation_token: CancellationToken,
+    listen_address: String,
+) -> Result<(), std::io::Error> {
     let listener = TcpListener::bind(&listen_address).await?;
     info!("TCP listener started on {}", listen_address);
     app_lifecycle
         .add_listener_address(format!("TCP:{listen_address}"))
         .await;
 
-    let cancellation_token = app_lifecycle.get_cancellation_token();
-
     loop {
         tokio::select! {
             _ = cancellation_token.cancelled() => {
-                info!("TCP listener shutting down.");
+                info!("TCP listener on {} shutting down.", listen_address);
                 break;
             }
             accept_result = listener.accept() => {
@@ -147,7 +173,7 @@ pub(crate) async fn run_tcp_listener(
                         );
                     }
                     Err(e) => {
-                        error!("Error accepting TCP connection: {}", e);
+                        error!("Error accepting TCP connection on {}: {}", listen_address, e);
                         if e.kind() == std::io::ErrorKind::ResourceBusy {
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         }

@@ -56,14 +56,14 @@ impl ConfigurationManager {
                 "Initial configuration established. Saving to {:?}",
                 config_file_path
             );
-            if let Some(parent_dir) = config_file_path.parent() {
-                if !parent_dir.exists() {
-                    std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
-                        path: parent_dir.to_path_buf(),
-                        source: e,
-                    })?;
-                    tracing::info!("Created config directory: {:?}", parent_dir);
-                }
+            if let Some(parent_dir) = config_file_path.parent()
+                && !parent_dir.exists()
+            {
+                std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
+                    path: parent_dir.to_path_buf(),
+                    source: e,
+                })?;
+                tracing::info!("Created config directory: {:?}", parent_dir);
             }
             config_store.save_app_config_file(&initial_result.app_config, &config_file_path)?;
         }
@@ -498,17 +498,17 @@ impl ConfigurationManager {
         let config_to_save = config_w.clone();
         drop(config_w);
 
-        if let Some(parent_dir) = self.config_file_path.parent() {
-            if !parent_dir.exists() {
-                std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
-                    path: parent_dir.to_path_buf(),
-                    source: e,
-                })?;
-                tracing::info!(
-                    "Created config directory for programmatic save: {:?}",
-                    parent_dir
-                );
-            }
+        if let Some(parent_dir) = self.config_file_path.parent()
+            && !parent_dir.exists()
+        {
+            std::fs::create_dir_all(parent_dir).map_err(|e| ConfigError::WriteFile {
+                path: parent_dir.to_path_buf(),
+                source: e,
+            })?;
+            tracing::info!(
+                "Created config directory for programmatic save: {:?}",
+                parent_dir
+            );
         }
 
         self.config_store
@@ -718,7 +718,7 @@ mod tests {
     #[allow(dead_code)]
     fn create_config_with_invalid_address() -> AppConfig {
         let mut config = AppConfig::default();
-        config.server.listen_address = "this_is_not_a_valid_address".to_string();
+        config.server.listen_addresses = vec!["this_is_not_a_valid_address".to_string()];
         config
     }
 
@@ -759,7 +759,7 @@ mod tests {
         let config_path = temp_dir.path().join("dnspx_config.toml");
 
         let mut existing_config = AppConfig::default();
-        existing_config.server.listen_address = "1.2.3.4:5353".to_string();
+        existing_config.server.listen_addresses = vec!["1.2.3.4:5353".to_string()];
 
         let mut mock_store = MockConfigStore::new(config_path.clone());
         mock_store.set_app_config_to_load(Ok(existing_config.clone()));
@@ -781,8 +781,8 @@ mod tests {
             "Should not be migrated if TOML exists"
         );
         assert_eq!(
-            initial_result.app_config.server.listen_address,
-            "1.2.3.4:5353"
+            initial_result.app_config.server.get_listen_addresses(),
+            vec!["1.2.3.4:5353".to_string()]
         );
 
         let saved_opt = mock_store_arc.get_saved_app_config();
@@ -852,8 +852,8 @@ mod tests {
         assert!(initial_result.config_was_written);
         assert!(initial_result.was_migrated);
         assert_eq!(
-            initial_result.app_config.server.listen_address,
-            "0.0.0.0:5333"
+            initial_result.app_config.server.get_listen_addresses(),
+            vec!["0.0.0.0:5333".to_string()]
         );
 
         assert!(mock_store_arc.get_saved_app_config().is_some());
@@ -1045,7 +1045,7 @@ mod tests {
         println!("Testing manual file reload...");
         let mut updated_config = AppConfig::default();
         updated_config.logging.level = "debug".to_string();
-        updated_config.server.listen_address = "0.0.0.0:8888".to_string();
+        updated_config.server.listen_addresses = vec!["0.0.0.0:8888".to_string()];
         let updated_toml_content = toml::to_string_pretty(&updated_config).unwrap();
 
         std::fs::write(&config_path, updated_toml_content).unwrap();
@@ -1071,7 +1071,8 @@ mod tests {
             "Config should be reloaded from file"
         );
         assert_eq!(
-            final_config.server.listen_address, "0.0.0.0:8888",
+            final_config.server.get_listen_addresses(),
+            vec!["0.0.0.0:8888".to_string()],
             "Address should be reloaded from file"
         );
 
@@ -1133,7 +1134,7 @@ mod tests {
 
         let mut target_config = AppConfig::default();
         target_config.logging.level = "debug".to_string();
-        target_config.server.listen_address = "127.0.0.1:7777".to_string();
+        target_config.server.listen_addresses = vec!["127.0.0.1:7777".to_string()];
         let target_toml_content = toml::to_string_pretty(&target_config).unwrap();
 
         let mut config_updated = false;
@@ -1158,7 +1159,7 @@ mod tests {
 
             if current_hash != initial_hash
                 && current_config.logging.level == "debug"
-                && current_config.server.listen_address == "127.0.0.1:7777"
+                && current_config.server.get_listen_addresses() == vec!["127.0.0.1:7777".to_string()]
             {
                 println!("✓ Config successfully updated on attempt {attempt}");
                 config_updated = true;

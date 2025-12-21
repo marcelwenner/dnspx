@@ -1,4 +1,7 @@
+#[cfg(feature = "aws")]
 use crate::adapters::aws::types::AwsCredentialsCache;
+#[cfg(not(feature = "aws"))]
+use crate::adapters::aws::stub::AwsCredentialsCache;
 use crate::aws_integration::scanner::DiscoveredAwsNetworkInfo;
 use crate::config::models::{AppConfig, AwsAccountConfig, AwsGlobalConfig};
 use crate::core::config_manager::ConfigurationManager;
@@ -7,8 +10,8 @@ use crate::core::error::{CliError, ConfigError};
 use crate::core::local_hosts_resolver::LocalHostsResolver;
 use crate::core::types::{AppStatus, AwsScannerStatus, ConfigStatus, MessageLevel};
 use crate::ports::{
-    AppLifecycleManagerPort, AwsConfigProvider, StatusReporterPort, UpdateManagerPort,
-    UserInteractionPort,
+    AppLifecycleManagerPort, AwsConfigProvider, DebugResolverPort, StatusReporterPort,
+    UpdateManagerPort, UserInteractionPort,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -36,6 +39,7 @@ pub(crate) struct AppLifecycleManager {
     pub discovered_aws_network_info: Arc<RwLock<DiscoveredAwsNetworkInfo>>,
     pub aws_config_provider: Arc<dyn AwsConfigProvider>,
     update_manager: Arc<Mutex<Option<Arc<dyn UpdateManagerPort>>>>,
+    debug_resolver: Arc<Mutex<Option<Arc<dyn DebugResolverPort>>>>,
 }
 
 #[async_trait]
@@ -137,6 +141,13 @@ impl AppLifecycleManagerPort for AppLifecycleManager {
         }
     }
 
+    fn get_debug_resolver(&self) -> Option<Arc<dyn DebugResolverPort>> {
+        match self.debug_resolver.try_lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        }
+    }
+
     async fn add_task(&self, handle: JoinHandle<()>) {
         self.add_task(handle).await;
     }
@@ -188,6 +199,7 @@ impl AppLifecycleManager {
             discovered_aws_network_info: Arc::new(RwLock::new(DiscoveredAwsNetworkInfo::default())),
             aws_config_provider,
             update_manager: Arc::new(Mutex::new(None)),
+            debug_resolver: Arc::new(Mutex::new(None)),
         });
 
         let app_manager_clone = Arc::clone(&app_manager);
@@ -201,6 +213,11 @@ impl AppLifecycleManager {
     pub(crate) async fn set_update_manager(&self, update_manager: Arc<dyn UpdateManagerPort>) {
         let mut guard = self.update_manager.lock().await;
         *guard = Some(update_manager);
+    }
+
+    pub(crate) async fn set_debug_resolver(&self, debug_resolver: Arc<dyn DebugResolverPort>) {
+        let mut guard = self.debug_resolver.lock().await;
+        *guard = Some(debug_resolver);
     }
 
     fn increment_total_queries_processed_internal(&self) {

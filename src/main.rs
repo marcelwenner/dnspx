@@ -11,45 +11,63 @@ mod ports;
 #[cfg(test)]
 mod app_lifecycle_tests;
 
+#[cfg(feature = "aws")]
 use crate::adapters::aws::credentials_provider::AwsSdkConfigProvider;
+#[cfg(feature = "aws")]
 use crate::adapters::aws::vpc_info_provider::AwsSdkVpcInfoProvider;
 use crate::adapters::cli::console_cli_adapter::ConsoleCliAdapter;
+use crate::adapters::cli::output::OutputFormat;
 use crate::adapters::resolver::composite_resolver::CompositeUpstreamResolver;
 use crate::adapters::resolver::doh_client::DohClientAdapter;
 use crate::adapters::resolver::standard_dns_client::StandardDnsClient;
 use crate::adapters::server::{tcp_listener, udp_listener};
 use crate::adapters::status::memory_status_store::InMemoryStatusStoreAdapter;
+#[cfg(feature = "tui")]
 use crate::adapters::tui::{
     app::TuiApp, app::TuiUserInteractionAdapter as TuiInteraction, event::EventManager,
     logging::TuiLoggingLayer,
 };
 use crate::adapters::update::manager::VerifiedUpdateManager;
 use crate::app_lifecycle::AppLifecycleManager;
+#[cfg(feature = "aws")]
 use crate::aws_integration::scanner::AwsVpcScannerTask;
 use crate::config::models::{AppConfig, LogFormat, LoggingConfig};
 use crate::core::config_manager::ConfigurationManager;
 use crate::core::rule_engine::RuleEngine;
-use crate::ports::{AwsConfigProvider, DnsQueryService, StatusReporterPort, UserInteractionPort};
+#[cfg(feature = "aws")]
+use crate::ports::AwsConfigProvider;
+use crate::ports::{DnsQueryService, StatusReporterPort, UserInteractionPort};
 use clap::Parser;
 use core::dns_request_processor::DnsRequestProcessor;
+#[cfg(feature = "tui")]
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ports::{AppLifecycleManagerPort, AwsVpcInfoProvider, ConfigurationStore};
+#[cfg(feature = "aws")]
+use ports::AwsVpcInfoProvider;
+use ports::{AppLifecycleManagerPort, ConfigurationStore};
+#[cfg(feature = "tui")]
 use ratatui::Terminal;
+#[cfg(feature = "tui")]
 use ratatui::backend::CrosstermBackend;
+#[cfg(feature = "aws")]
 use std::collections::HashMap;
+#[cfg(feature = "tui")]
 use std::io::stdout;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::signal;
+#[cfg(feature = "aws")]
 use tokio::sync::RwLock as TokioRwLock;
 use tracing::{error, info};
 use tracing_subscriber::fmt::format::FmtSpan;
+#[cfg(feature = "tui")]
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-use tracing_subscriber::{EnvFilter, FmtSubscriber, registry::Registry};
+#[cfg(feature = "tui")]
+use tracing_subscriber::registry::Registry;
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::core::types::MessageLevel;
 
@@ -62,16 +80,24 @@ struct CliArgs {
         help = "Run in simple CLI mode without the TUI dashboard"
     )]
     cli_only: bool,
+
+    #[clap(
+        long,
+        value_enum,
+        default_value = "human",
+        help = "Output format for commands (human-readable or JSON)"
+    )]
+    format: OutputFormat,
 }
 
 fn determine_config_base_path() -> PathBuf {
     use tracing::{debug, warn};
 
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            debug!("Using executable's directory as base path: {:?}", exe_dir);
-            return exe_dir.to_path_buf();
-        }
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        debug!("Using executable's directory as base path: {:?}", exe_dir);
+        return exe_dir.to_path_buf();
     }
 
     warn!("Could not determine executable path. Falling back to current working directory.");
@@ -138,6 +164,7 @@ fn init_logger_cli(logging_config: &LoggingConfig, terminal_colors_enabled: bool
     );
 }
 
+#[cfg(feature = "tui")]
 fn init_logger_tui(
     logging_config: &LoggingConfig,
     tui_log_tx: tokio::sync::mpsc::Sender<(String, crate::core::types::MessageLevel)>,
@@ -158,7 +185,12 @@ fn init_logger_tui(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
+
+    // TUI mode is only available when the tui feature is enabled
+    #[cfg(feature = "tui")]
     let is_tui_mode = !cli_args.cli_only;
+    #[cfg(not(feature = "tui"))]
+    let is_tui_mode = false;
 
     let console_supports_color = supports_color::on(supports_color::Stream::Stdout).is_some();
 
@@ -193,11 +225,14 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    #[cfg(feature = "tui")]
     if is_tui_mode {
         eprintln!("DNS Proxy bootstrap starting (TUI mode)...");
     } else {
         tracing::info!("DNS Proxy bootstrap starting...");
     }
+    #[cfg(not(feature = "tui"))]
+    tracing::info!("DNS Proxy bootstrap starting...");
 
     let config_store_adapter: Arc<dyn ConfigurationStore> = Arc::new(
         adapters::config::file_store::JsonFileConfigAdapter::new(config_base_path.clone()),
@@ -212,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
+    #[cfg(feature = "tui")]
     let (tui_log_tx_for_interaction_adapter, tui_log_rx_for_app) = tokio::sync::mpsc::channel(2048);
 
     let final_log_config = config_manager_instance
@@ -231,6 +267,7 @@ async fn main() -> anyhow::Result<()> {
     let user_interaction_port: Arc<dyn UserInteractionPort>;
     let console_cli_adapter_instance_opt: Option<Arc<ConsoleCliAdapter>>;
 
+    #[cfg(feature = "tui")]
     if is_tui_mode {
         init_logger_tui(
             &final_log_config,
@@ -242,7 +279,15 @@ async fn main() -> anyhow::Result<()> {
         console_cli_adapter_instance_opt = None;
     } else {
         init_logger_cli(&final_log_config, final_colors_enabled);
-        let adapter = Arc::new(ConsoleCliAdapter::new(final_colors_enabled));
+        let adapter = Arc::new(ConsoleCliAdapter::new(final_colors_enabled, cli_args.format));
+        user_interaction_port = adapter.clone();
+        console_cli_adapter_instance_opt = Some(adapter);
+    }
+
+    #[cfg(not(feature = "tui"))]
+    {
+        init_logger_cli(&final_log_config, final_colors_enabled);
+        let adapter = Arc::new(ConsoleCliAdapter::new(final_colors_enabled, cli_args.format));
         user_interaction_port = adapter.clone();
         console_cli_adapter_instance_opt = Some(adapter);
     }
@@ -277,13 +322,18 @@ async fn main() -> anyhow::Result<()> {
     let status_reporter_adapter: Arc<dyn StatusReporterPort> =
         Arc::new(InMemoryStatusStoreAdapter::new());
 
-    let aws_credentials_cache = Arc::new(TokioRwLock::new(HashMap::new()));
-    let aws_config_provider_adapter: Arc<dyn AwsConfigProvider> =
+    #[cfg(feature = "aws")]
+    let aws_config_provider_adapter: Arc<dyn AwsConfigProvider> = {
+        let aws_credentials_cache = Arc::new(TokioRwLock::new(HashMap::new()));
         Arc::new(AwsSdkConfigProvider::new(
             config_manager_instance.get_config(),
             Arc::clone(&user_interaction_port),
             Arc::clone(&aws_credentials_cache),
-        ));
+        ))
+    };
+    #[cfg(not(feature = "aws"))]
+    let aws_config_provider_adapter: Arc<dyn crate::ports::AwsConfigProvider> =
+        Arc::new(crate::adapters::aws::stub::StubAwsConfigProvider::new());
 
     let app_lifecycle_manager_impl = AppLifecycleManager::new(
         config_manager_instance,
@@ -315,7 +365,7 @@ async fn main() -> anyhow::Result<()> {
                 app_conf.http_proxy.clone(),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to create DoH client: {}", e))?,
+            .map_err(|e| anyhow::anyhow!("Failed to create DoH client: {e}"))?,
         )
     };
 
@@ -334,94 +384,116 @@ async fn main() -> anyhow::Result<()> {
         composite_resolver,
     ));
 
-    let aws_vpc_info_provider: Arc<dyn AwsVpcInfoProvider> = Arc::new(AwsSdkVpcInfoProvider::new());
+    let debug_resolver: Arc<dyn ports::DebugResolverPort> = dns_request_processor.clone();
+    app_lifecycle_manager_impl
+        .set_debug_resolver(debug_resolver)
+        .await;
 
-    let mut proceed_with_aws_scanner = false;
-    let alm_aws_config = app_lifecycle_manager.get_config().read().await.aws.clone();
-    if let Some(aws_config) = alm_aws_config {
-        if !aws_config.accounts.is_empty() {
-            user_interaction_port.display_message(
-                "AWS configuration found. Performing preliminary credential check...",
-                MessageLevel::Info,
-            );
-            let mut any_account_valid = false;
-            for account_conf in &aws_config.accounts {
-                match aws_config_provider_adapter
-                    .get_credentials_for_account(account_conf, Arc::clone(&user_interaction_port))
-                    .await
-                {
-                    Ok(creds) => {
-                        match aws_config_provider_adapter
-                            .validate_credentials(&creds)
-                            .await
-                        {
-                            Ok(arn) => {
-                                user_interaction_port.display_message(
-                                    &format!("Preliminary credential check successful for account '{}' (ARN: {}). AWS Scanner will be started.", account_conf.label, arn),
-                                    MessageLevel::Info,
-                                );
-                                any_account_valid = true;
-                                break;
-                            }
-                            Err(e) => {
-                                user_interaction_port.display_message(
-                                    &format!("Preliminary credential validation failed for account '{}': {}. This account might not be scannable.", account_conf.label, e),
-                                    MessageLevel::Warning,
-                                );
+    #[cfg(feature = "aws")]
+    {
+        let aws_vpc_info_provider: Arc<dyn AwsVpcInfoProvider> =
+            Arc::new(AwsSdkVpcInfoProvider::new());
+
+        let mut proceed_with_aws_scanner = false;
+        let alm_aws_config = app_lifecycle_manager.get_config().read().await.aws.clone();
+        if let Some(aws_config) = alm_aws_config {
+            if !aws_config.accounts.is_empty() {
+                user_interaction_port.display_message(
+                    "AWS configuration found. Performing preliminary credential check...",
+                    MessageLevel::Info,
+                );
+                let mut any_account_valid = false;
+                for account_conf in &aws_config.accounts {
+                    match aws_config_provider_adapter
+                        .get_credentials_for_account(account_conf, Arc::clone(&user_interaction_port))
+                        .await
+                    {
+                        Ok(creds) => {
+                            match aws_config_provider_adapter
+                                .validate_credentials(&creds)
+                                .await
+                            {
+                                Ok(arn) => {
+                                    user_interaction_port.display_message(
+                                        &format!("Preliminary credential check successful for account '{}' (ARN: {}). AWS Scanner will be started.", account_conf.label, arn),
+                                        MessageLevel::Info,
+                                    );
+                                    any_account_valid = true;
+                                    break;
+                                }
+                                Err(e) => {
+                                    user_interaction_port.display_message(
+                                        &format!("Preliminary credential validation failed for account '{}': {}. This account might not be scannable.", account_conf.label, e),
+                                        MessageLevel::Warning,
+                                    );
+                                }
                             }
                         }
-                    }
-                    Err(e) => {
-                        user_interaction_port.display_message(
-                            &format!("Failed to obtain initial credentials for AWS account '{}' during pre-check: {}. This account might not be scannable.", account_conf.label, e),
-                            MessageLevel::Warning,
-                        );
+                        Err(e) => {
+                            user_interaction_port.display_message(
+                                &format!("Failed to obtain initial credentials for AWS account '{}' during pre-check: {}. This account might not be scannable.", account_conf.label, e),
+                                MessageLevel::Warning,
+                            );
+                        }
                     }
                 }
-            }
-            if any_account_valid {
-                proceed_with_aws_scanner = true;
+                if any_account_valid {
+                    proceed_with_aws_scanner = true;
+                } else {
+                    user_interaction_port.display_message(
+                        "No AWS accounts have initially valid credentials. AWS Scanner will NOT be started. Please check configuration or use TUI (Ctrl+R) for setup.",
+                        MessageLevel::Error,
+                    );
+                    status_reporter_adapter
+                        .report_aws_scanner_status(crate::core::types::AwsScannerStatus {
+                            is_scanning: false,
+                            error_message: Some(
+                                "No initially valid AWS credentials found for any configured account."
+                                    .to_string(),
+                            ),
+                            ..Default::default()
+                        })
+                        .await;
+                }
             } else {
                 user_interaction_port.display_message(
-                    "No AWS accounts have initially valid credentials. AWS Scanner will NOT be started. Please check configuration or use TUI (Ctrl+R) for setup.",
-                    MessageLevel::Error,
+                    "AWS configuration section exists but no accounts are defined. AWS Scanner will not be started.",
+                    MessageLevel::Info,
                 );
-                status_reporter_adapter
-                    .report_aws_scanner_status(crate::core::types::AwsScannerStatus {
-                        is_scanning: false,
-                        error_message: Some(
-                            "No initially valid AWS credentials found for any configured account."
-                                .to_string(),
-                        ),
-                        ..Default::default()
-                    })
-                    .await;
             }
         } else {
             user_interaction_port.display_message(
-                "AWS configuration section exists but no accounts are defined. AWS Scanner will not be started.",
+                "No AWS configuration found. AWS VPC Scanner Task will not be started.",
                 MessageLevel::Info,
             );
         }
-    } else {
-        user_interaction_port.display_message(
-            "No AWS configuration found. AWS VPC Scanner Task will not be started.",
-            MessageLevel::Info,
-        );
+
+        if proceed_with_aws_scanner {
+            user_interaction_port
+                .display_message("Starting AWS VPC Scanner Task.", MessageLevel::Info);
+            let scanner_task = Arc::new(AwsVpcScannerTask::new(
+                Arc::clone(&app_lifecycle_manager),
+                Arc::clone(&aws_config_provider_adapter),
+                Arc::clone(&aws_vpc_info_provider),
+                std_dns_resolver_adapter.clone(),
+            ));
+            let scanner_handle = tokio::spawn(async move {
+                scanner_task.run().await;
+            });
+            app_lifecycle_manager.add_task(scanner_handle).await;
+        }
     }
 
-    if proceed_with_aws_scanner {
-        user_interaction_port.display_message("Starting AWS VPC Scanner Task.", MessageLevel::Info);
-        let scanner_task = Arc::new(AwsVpcScannerTask::new(
-            Arc::clone(&app_lifecycle_manager),
-            Arc::clone(&aws_config_provider_adapter),
-            Arc::clone(&aws_vpc_info_provider),
-            std_dns_resolver_adapter.clone(),
-        ));
-        let scanner_handle = tokio::spawn(async move {
-            scanner_task.run().await;
-        });
-        app_lifecycle_manager.add_task(scanner_handle).await;
+    #[cfg(not(feature = "aws"))]
+    {
+        // Check if AWS config is present but feature is disabled
+        let alm_aws_config = app_lifecycle_manager.get_config().read().await.aws.clone();
+        if alm_aws_config.is_some() {
+            user_interaction_port.display_message(
+                "AWS configuration found but AWS feature is not enabled in this build. AWS Scanner will not be started.",
+                MessageLevel::Warning,
+            );
+        }
     }
 
     let update_config = app_lifecycle_manager
@@ -503,6 +575,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    #[cfg(feature = "tui")]
     if is_tui_mode {
         info!("Starting TUI Dashboard mode...");
 
@@ -537,7 +610,14 @@ async fn main() -> anyhow::Result<()> {
             info!("TUI exited, ensuring application shutdown via AppLifecycleManager::stop().");
             app_lifecycle_manager.stop().await;
         }
-    } else {
+    }
+
+    #[cfg(feature = "tui")]
+    let run_cli_mode = !is_tui_mode;
+    #[cfg(not(feature = "tui"))]
+    let run_cli_mode = true;
+
+    if run_cli_mode {
         user_interaction_port.display_message(
             "Application started in CLI mode. Enter commands or press Ctrl+C to shut down.",
             MessageLevel::Info,
@@ -556,17 +636,31 @@ async fn main() -> anyhow::Result<()> {
             {
                 let mut sigterm =
                     signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
-                tokio::select! {
-                    _ = signal::ctrl_c() => {
-                        user_interaction_port.display_message("Ctrl+C received in CLI mode. Initiating shutdown...", MessageLevel::Info);
-                        app_lifecycle_manager.stop().await;
-                    }
-                    _ = sigterm.recv() => {
-                        user_interaction_port.display_message("SIGTERM received in CLI mode. Initiating shutdown...", MessageLevel::Info);
-                        app_lifecycle_manager.stop().await;
-                    }
-                    _ = shutdown_token_cli.cancelled() => {
-                        user_interaction_port.display_message("Shutdown initiated by application logic. Waiting for tasks.", MessageLevel::Info);
+                let mut sighup =
+                    signal::unix::signal(signal::unix::SignalKind::hangup()).unwrap();
+                loop {
+                    tokio::select! {
+                        _ = signal::ctrl_c() => {
+                            user_interaction_port.display_message("Ctrl+C received in CLI mode. Initiating shutdown...", MessageLevel::Info);
+                            app_lifecycle_manager.stop().await;
+                            break;
+                        }
+                        _ = sigterm.recv() => {
+                            user_interaction_port.display_message("SIGTERM received in CLI mode. Initiating shutdown...", MessageLevel::Info);
+                            app_lifecycle_manager.stop().await;
+                            break;
+                        }
+                        _ = sighup.recv() => {
+                            user_interaction_port.display_message("SIGHUP received. Triggering configuration reload...", MessageLevel::Info);
+                            if let Err(e) = app_lifecycle_manager.trigger_config_reload().await {
+                                user_interaction_port.display_message(&format!("Config reload failed: {e}"), MessageLevel::Warning);
+                            }
+                            // Continue the loop - don't shutdown on SIGHUP
+                        }
+                        _ = shutdown_token_cli.cancelled() => {
+                            user_interaction_port.display_message("Shutdown initiated by application logic. Waiting for tasks.", MessageLevel::Info);
+                            break;
+                        }
                     }
                 }
             }
@@ -583,22 +677,54 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            if let Err(e) = cli_task_handle.await {
-                if !e.is_cancelled() {
-                    eprintln!("[ERROR] CLI task ended with an error: {e:?}");
-                }
+            if let Err(e) = cli_task_handle.await
+                && !e.is_cancelled()
+            {
+                eprintln!("[ERROR] CLI task ended with an error: {e:?}");
             }
         } else {
             error!(
                 "CLI mode selected, but no ConsoleCliAdapter instance available. Cannot start CLI loop."
             );
             let shutdown_token_cli = app_lifecycle_manager.get_cancellation_token();
-            tokio::select! {
-                _ = signal::ctrl_c() => {
-                    user_interaction_port.display_message("Ctrl+C received. Initiating shutdown...", MessageLevel::Info);
+            #[cfg(unix)]
+            {
+                let mut sigterm =
+                    signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
+                let mut sighup =
+                    signal::unix::signal(signal::unix::SignalKind::hangup()).unwrap();
+                loop {
+                    tokio::select! {
+                        _ = signal::ctrl_c() => {
+                            user_interaction_port.display_message("Ctrl+C received. Initiating shutdown...", MessageLevel::Info);
+                            break;
+                        }
+                        _ = sigterm.recv() => {
+                            user_interaction_port.display_message("SIGTERM received. Initiating shutdown...", MessageLevel::Info);
+                            break;
+                        }
+                        _ = sighup.recv() => {
+                            user_interaction_port.display_message("SIGHUP received. Triggering configuration reload...", MessageLevel::Info);
+                            if let Err(e) = app_lifecycle_manager.trigger_config_reload().await {
+                                user_interaction_port.display_message(&format!("Config reload failed: {e}"), MessageLevel::Warning);
+                            }
+                        }
+                        _ = shutdown_token_cli.cancelled() => {
+                            user_interaction_port.display_message("Shutdown initiated by other logic.", MessageLevel::Info);
+                            break;
+                        }
+                    }
                 }
-                _ = shutdown_token_cli.cancelled() => {
-                     user_interaction_port.display_message("Shutdown initiated by other logic.", MessageLevel::Info);
+            }
+            #[cfg(windows)]
+            {
+                tokio::select! {
+                    _ = signal::ctrl_c() => {
+                        user_interaction_port.display_message("Ctrl+C received. Initiating shutdown...", MessageLevel::Info);
+                    }
+                    _ = shutdown_token_cli.cancelled() => {
+                        user_interaction_port.display_message("Shutdown initiated by other logic.", MessageLevel::Info);
+                    }
                 }
             }
             app_lifecycle_manager.stop().await;

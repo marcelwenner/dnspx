@@ -192,13 +192,13 @@ impl SecurityValidator {
                 )
             })?;
 
-            if let Some(cached) = cache.as_ref() {
-                if Instant::now() < cached.cached_until {
-                    debug!("Using cached JWKS");
-                    return Ok(GitHubJwks {
-                        keys: cached.jwks.keys.clone(),
-                    });
-                }
+            if let Some(cached) = cache.as_ref()
+                && Instant::now() < cached.cached_until
+            {
+                debug!("Using cached JWKS");
+                return Ok(GitHubJwks {
+                    keys: cached.jwks.keys.clone(),
+                });
             }
         }
 
@@ -528,10 +528,11 @@ impl SecurityValidator {
                 continue;
             }
 
-            if let Some(checksum) = line.split_whitespace().next() {
-                if checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return Ok(checksum.to_string());
-                }
+            if let Some(checksum) = line.split_whitespace().next()
+                && checksum.len() == 64
+                && checksum.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                return Ok(checksum.to_string());
             }
         }
 
@@ -547,12 +548,13 @@ impl SecurityValidator {
         match parsed_url.scheme() {
             "https" => {}
             "http" => {
-                if let Some(host) = parsed_url.host_str() {
-                    if !host.starts_with("127.0.0.1") && !host.starts_with("localhost") {
-                        return Err(UpdateError::SecurityValidationFailed(
-                            "HTTP downloads only allowed from localhost".to_string(),
-                        ));
-                    }
+                if let Some(host) = parsed_url.host_str()
+                    && !host.starts_with("127.0.0.1")
+                    && !host.starts_with("localhost")
+                {
+                    return Err(UpdateError::SecurityValidationFailed(
+                        "HTTP downloads only allowed from localhost".to_string(),
+                    ));
                 }
             }
             _ => {

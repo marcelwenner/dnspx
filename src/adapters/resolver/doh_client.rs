@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::config::models::{HttpProxyConfig, ProxyAuthenticationType};
+use crate::config::models::{HttpProxyConfig, ProxyAuthenticationType, ResolverStrategy};
 use crate::core::error::ResolveError;
 use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
 use crate::ports::UpstreamResolver;
@@ -578,6 +578,7 @@ impl UpstreamResolver for DohClientAdapter {
         _question: &DnsQuestion,
         _upstream_servers: &[String],
         _timeout: Duration,
+        _strategy: ResolverStrategy,
     ) -> Result<DnsMessage, ResolveError> {
         error!("DohClientAdapter does not support standard DNS.");
         Err(ResolveError::Configuration(
@@ -591,6 +592,7 @@ impl UpstreamResolver for DohClientAdapter {
         question: &DnsQuestion,
         upstream_urls: &[Url],
         timeout_duration: Duration,
+        _strategy: ResolverStrategy,
         http_proxy_config_param: Option<&HttpProxyConfig>,
     ) -> Result<DnsMessage, ResolveError> {
         if upstream_urls.is_empty() {
@@ -718,7 +720,7 @@ mod tests {
         // For now, we verify the ID check logic exists in the resolve_doh method
         assert!(matches!(
             adapter
-                .resolve_doh(&question, &[], Duration::from_secs(1), None)
+                .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
                 .await,
             Err(ResolveError::NoUpstreamServers)
         ));
@@ -738,7 +740,7 @@ mod tests {
 
         // Test with empty upstream servers (this will trigger the validation path)
         let result = adapter
-            .resolve_doh(&question, &[], Duration::from_secs(1), None)
+            .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
@@ -766,7 +768,7 @@ mod tests {
 
             // Test with no upstream servers - validates input handling
             let result = adapter
-                .resolve_doh(&question, &[], Duration::from_secs(1), None)
+                .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
                 .await;
 
             assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
@@ -822,7 +824,7 @@ mod tests {
 
         // This should fail during message construction or validation
         let result = adapter
-            .resolve_doh(&question, &[], Duration::from_secs(1), None)
+            .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(result.is_err());
@@ -852,7 +854,7 @@ mod tests {
 
         // Test with invalid proxy credentials
         let result = adapter
-            .resolve_doh(&question, &[], Duration::from_secs(1), None)
+            .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
@@ -880,7 +882,7 @@ mod tests {
 
         // Test with missing credentials when auth is required
         let result = adapter
-            .resolve_doh(&question, &[], Duration::from_secs(1), None)
+            .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
@@ -909,7 +911,7 @@ mod tests {
 
         // Test SSPI authentication failure handling
         let result = adapter
-            .resolve_doh(&question, &[], Duration::from_secs(1), None)
+            .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
@@ -938,7 +940,7 @@ mod tests {
 
         // Test proxy connection failure
         let result = adapter
-            .resolve_doh(&question, &[], Duration::from_secs(1), None)
+            .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
@@ -962,6 +964,7 @@ mod tests {
                 &question,
                 &[],
                 Duration::from_millis(1), // Very short timeout
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -986,7 +989,7 @@ mod tests {
         ];
 
         let result = adapter
-            .resolve_doh(&question, &invalid_urls, Duration::from_secs(1), None)
+            .resolve_doh(&question, &invalid_urls, Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         // Should try all servers and fail
@@ -1010,7 +1013,7 @@ mod tests {
         ];
 
         let result = adapter
-            .resolve_doh(&question, &error_urls, Duration::from_secs(5), None)
+            .resolve_doh(&question, &error_urls, Duration::from_secs(5), ResolverStrategy::First, None)
             .await;
 
         // Should handle HTTP errors gracefully
@@ -1034,7 +1037,7 @@ mod tests {
         ];
 
         let result = adapter
-            .resolve_doh(&question, &malformed_urls, Duration::from_secs(1), None)
+            .resolve_doh(&question, &malformed_urls, Duration::from_secs(1), ResolverStrategy::First, None)
             .await;
 
         assert!(result.is_err());
@@ -1062,6 +1065,7 @@ mod tests {
                 &question,
                 &mixed_urls,
                 Duration::from_millis(100), // Short timeout to avoid actual network calls
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1094,7 +1098,7 @@ mod tests {
             let adapter_clone = get_test_client_async(None).await;
             let handle = tokio::spawn(async move {
                 adapter_clone
-                    .resolve_doh(&question, &[], Duration::from_secs(1), None)
+                    .resolve_doh(&question, &[], Duration::from_secs(1), ResolverStrategy::First, None)
                     .await
             });
             handles.push(handle);
@@ -1220,6 +1224,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://dns.google/dns-query").unwrap()],
                 Duration::from_secs(5),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1255,6 +1260,7 @@ mod integration_tests {
                         &question,
                         &[Url::parse("https://dns.google/dns-query").unwrap()],
                         Duration::from_secs(5),
+                        ResolverStrategy::First,
                         None,
                     )
                     .await;
@@ -1302,7 +1308,7 @@ mod integration_tests {
         for url_str in invalid_urls {
             if let Ok(url) = Url::parse(url_str) {
                 let result = client
-                    .resolve_doh(&question, &[url], Duration::from_secs(5), None)
+                    .resolve_doh(&question, &[url], Duration::from_secs(5), ResolverStrategy::First, None)
                     .await;
 
                 assert!(result.is_err());
@@ -1327,6 +1333,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://httpbin.org/delay/5").unwrap()],
                 Duration::from_millis(100),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1394,7 +1401,7 @@ mod integration_tests {
         };
 
         let result = client
-            .resolve_doh(&question, &[], Duration::from_secs(5), None)
+            .resolve_doh(&question, &[], Duration::from_secs(5), ResolverStrategy::First, None)
             .await;
         assert!(matches!(result, Err(ResolveError::NoUpstreamServers)));
     }
@@ -1416,6 +1423,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://dns.google/dns-query").unwrap()],
                 Duration::from_secs(5),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1451,6 +1459,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://nonexistent-doh-server-12345.invalid/dns-query").unwrap()],
                 Duration::from_secs(2),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1494,6 +1503,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://dns.google/dns-query").unwrap()],
                 Duration::from_millis(1),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1539,6 +1549,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://dns.google/dns-query").unwrap()],
                 Duration::from_secs(5),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1578,6 +1589,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://httpbin.org/status/200").unwrap()],
                 Duration::from_secs(5),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1664,6 +1676,7 @@ mod integration_tests {
                 &question,
                 &[Url::parse("https://dns.google/dns-query").unwrap()],
                 Duration::from_millis(1),
+                ResolverStrategy::First,
                 None,
             )
             .await;
@@ -1694,6 +1707,7 @@ mod integration_tests {
                         &question,
                         &[Url::parse("https://dns.google/dns-query").unwrap()],
                         Duration::from_secs(5),
+                        ResolverStrategy::First,
                         None,
                     )
                     .await;
