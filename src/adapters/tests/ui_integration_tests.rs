@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::adapters::cli::console_cli_adapter::ConsoleCliAdapter;
+    use crate::adapters::cli::output::OutputFormat;
     use crate::adapters::tui::app::TuiUserInteractionAdapter;
     use crate::core::types::{
         AppStatus, AwsScannerStatus, CacheStats, ConfigStatus, MessageLevel, UpdateStatus,
@@ -12,8 +13,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_adapter_creation() {
-        let _cli_adapter_color = ConsoleCliAdapter::new(true);
-        let _cli_adapter_no_color = ConsoleCliAdapter::new(false);
+        let _cli_adapter_color = ConsoleCliAdapter::new(true, OutputFormat::Human);
+        let _cli_adapter_no_color = ConsoleCliAdapter::new(false, OutputFormat::Human);
     }
 
     #[tokio::test]
@@ -58,7 +59,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_app_status_display_comprehensive() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         let comprehensive_status = AppStatus {
             uptime_seconds: 12345,
@@ -106,7 +107,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_app_status_display_minimal() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         let minimal_status = AppStatus {
             uptime_seconds: 60,
@@ -128,7 +129,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_adapter_table_display() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         cli_adapter.display_table(vec![], vec![]);
 
@@ -153,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_adapter_prompt_display() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         cli_adapter.display_prompt("test> ");
         cli_adapter.display_prompt("");
@@ -162,7 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_level_display_formatting() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         let test_messages = vec![
             ("Error test", MessageLevel::Error),
@@ -179,9 +180,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_adapter_color_support() {
-        let cli_adapter_color = ConsoleCliAdapter::new(true);
+        let cli_adapter_color = ConsoleCliAdapter::new(true, OutputFormat::Human);
 
-        let cli_adapter_no_color = ConsoleCliAdapter::new(false);
+        let cli_adapter_no_color = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         let test_message = "Test message for color display";
         cli_adapter_color.display_message(test_message, MessageLevel::Info);
@@ -205,7 +206,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_output_types() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         let status = AppStatus {
             uptime_seconds: 100,
@@ -234,7 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_display_functionality() {
-        let cli_adapter = ConsoleCliAdapter::new(false);
+        let cli_adapter = ConsoleCliAdapter::new(false, OutputFormat::Human);
 
         let test_error = std::io::Error::new(std::io::ErrorKind::NotFound, "Test file not found");
 
@@ -278,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_help_display() {
-        let cli_adapter = ConsoleCliAdapter::new(true);
+        let cli_adapter = ConsoleCliAdapter::new(true, OutputFormat::Human);
 
         cli_adapter.display_message(
             "Help: Available commands: status, reload, scan",
@@ -292,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_component_construction_variants() {
-        let adapters = vec![ConsoleCliAdapter::new(true), ConsoleCliAdapter::new(false)];
+        let adapters = vec![ConsoleCliAdapter::new(true, OutputFormat::Human), ConsoleCliAdapter::new(false, OutputFormat::Human)];
 
         for adapter in adapters {
             adapter.display_message("Test construction", MessageLevel::Info);
@@ -304,7 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ui_integration_stress() {
-        let cli_adapter = Arc::new(ConsoleCliAdapter::new(false));
+        let cli_adapter = Arc::new(ConsoleCliAdapter::new(false, OutputFormat::Human));
         let (tx, _rx) = mpsc::channel(1000);
         let tui_interaction = Arc::new(TuiUserInteractionAdapter::new(tx));
 

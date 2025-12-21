@@ -1,6 +1,6 @@
 use crate::adapters::resolver::doh_client::DohClientAdapter;
 use crate::adapters::resolver::standard_dns_client::StandardDnsClient;
-use crate::config::models::HttpProxyConfig;
+use crate::config::models::{HttpProxyConfig, ResolverStrategy};
 use crate::core::error::ResolveError;
 use crate::dns_protocol::{DnsMessage, DnsQuestion};
 use crate::ports::UpstreamResolver;
@@ -33,9 +33,10 @@ impl UpstreamResolver for CompositeUpstreamResolver {
         question: &DnsQuestion,
         upstream_servers: &[String],
         timeout: Duration,
+        strategy: ResolverStrategy,
     ) -> Result<DnsMessage, ResolveError> {
         self.std_dns_client
-            .resolve_dns(question, upstream_servers, timeout)
+            .resolve_dns(question, upstream_servers, timeout, strategy)
             .await
     }
 
@@ -44,10 +45,11 @@ impl UpstreamResolver for CompositeUpstreamResolver {
         question: &DnsQuestion,
         upstream_urls: &[Url],
         timeout: Duration,
+        strategy: ResolverStrategy,
         http_proxy_config: Option<&HttpProxyConfig>,
     ) -> Result<DnsMessage, ResolveError> {
         self.doh_client
-            .resolve_doh(question, upstream_urls, timeout, http_proxy_config)
+            .resolve_doh(question, upstream_urls, timeout, strategy, http_proxy_config)
             .await
     }
 }

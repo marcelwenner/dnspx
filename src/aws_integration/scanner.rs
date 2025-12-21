@@ -1,5 +1,5 @@
 use crate::adapters::aws::types::AwsDiscoveredEndpoint;
-use crate::config::models::{AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsRoleConfig};
+use crate::config::models::{AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsRoleConfig, ResolverStrategy};
 use crate::core::dns_cache::{CacheKey, DnsCache};
 use crate::core::error::{AwsApiError, ResolveError};
 use crate::core::types::{AccountScanError, AwsCredentials, AwsScannerStatus};
@@ -376,7 +376,7 @@ impl AwsVpcScannerTask {
 
         match self
             .vpc_internal_resolver
-            .resolve_dns(&question_a, &resolver_ip_strings, VPC_DNS_TIMEOUT)
+            .resolve_dns(&question_a, &resolver_ip_strings, VPC_DNS_TIMEOUT, ResolverStrategy::First)
             .await
         {
             Ok(response) => {
@@ -394,7 +394,7 @@ impl AwsVpcScannerTask {
 
         match self
             .vpc_internal_resolver
-            .resolve_dns(&question_aaaa, &resolver_ip_strings, VPC_DNS_TIMEOUT)
+            .resolve_dns(&question_aaaa, &resolver_ip_strings, VPC_DNS_TIMEOUT, ResolverStrategy::First)
             .await
         {
             Ok(response) => {

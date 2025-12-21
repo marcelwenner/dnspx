@@ -1,5 +1,6 @@
 pub(crate) mod migration;
 pub(crate) mod models;
+pub(crate) mod validation;
 
 use crate::core::error::ConfigError;
 use std::path::{Path, PathBuf};

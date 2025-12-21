@@ -61,6 +61,7 @@ mod tests {
 
     #[async_trait]
     impl AwsConfigProvider for MockAwsConfigProvider {
+        #[cfg(feature = "aws")]
         async fn get_credentials_for_account(
             &self,
             _account_config: &crate::config::models::AwsAccountConfig,
@@ -76,6 +77,18 @@ mod tests {
             ))
         }
 
+        #[cfg(not(feature = "aws"))]
+        async fn get_credentials_for_account(
+            &self,
+            _account_config: &crate::config::models::AwsAccountConfig,
+            _mfa_provider: Arc<dyn UserInteractionPort>,
+        ) -> Result<crate::core::types::AwsCredentials, crate::core::error::AwsAuthError> {
+            Err(crate::core::error::AwsAuthError::Config(
+                "AWS feature not enabled".to_string(),
+            ))
+        }
+
+        #[cfg(feature = "aws")]
         async fn get_credentials_for_role(
             &self,
             _base_credentials: &crate::core::types::AwsCredentials,
@@ -90,6 +103,19 @@ mod tests {
                 Some("mock-session-token".to_string()),
                 None,
                 "MockRoleCredentialsProvider",
+            ))
+        }
+
+        #[cfg(not(feature = "aws"))]
+        async fn get_credentials_for_role(
+            &self,
+            _base_credentials: &crate::core::types::AwsCredentials,
+            _role_config: &crate::config::models::AwsRoleConfig,
+            _account_config_for_mfa_serial: &crate::config::models::AwsAccountConfig,
+            _mfa_provider: Arc<dyn UserInteractionPort>,
+        ) -> Result<crate::core::types::AwsCredentials, crate::core::error::AwsAuthError> {
+            Err(crate::core::error::AwsAuthError::Config(
+                "AWS feature not enabled".to_string(),
             ))
         }
 
@@ -336,6 +362,6 @@ mod tests {
         let reload_result = lifecycle_manager.trigger_config_reload().await;
         assert!(reload_result.is_ok());
 
-        assert_eq!(initial_config.server.listen_address, "0.0.0.0:53");
+        assert_eq!(initial_config.server.get_listen_addresses(), vec!["0.0.0.0:53".to_string()]);
     }
 }

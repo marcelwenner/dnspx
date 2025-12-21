@@ -4,6 +4,7 @@ pub(crate) mod config;
 pub(crate) mod resolver;
 pub(crate) mod server;
 pub(crate) mod status;
+#[cfg(feature = "tui")]
 pub(crate) mod tui;
 pub(crate) mod update;
 

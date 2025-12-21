@@ -1,9 +1,12 @@
 use super::{create_error_response, is_client_whitelisted};
+use crate::config::models::AppConfig;
 use crate::core::types::ProtocolType;
 use crate::ports::{AppLifecycleManagerPort, DnsQueryService};
 use hickory_proto::op::ResponseCode;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, error, info, warn};
 
 pub(crate) async fn run_udp_listener(
@@ -11,24 +14,62 @@ pub(crate) async fn run_udp_listener(
     dns_query_service: Arc<dyn DnsQueryService>,
 ) -> Result<(), std::io::Error> {
     let config_guard = app_lifecycle.get_config();
-    let listen_address = {
+    let listen_addresses = {
         let guard = config_guard.read().await;
-        guard.server.listen_address.clone()
+        guard.server.get_listen_addresses()
     };
 
+    let cancellation_token = app_lifecycle.get_cancellation_token();
+    let mut listener_handles = Vec::new();
+
+    for listen_address in listen_addresses {
+        let app_lifecycle_clone = Arc::clone(&app_lifecycle);
+        let dns_query_service_clone = Arc::clone(&dns_query_service);
+        let config_guard_clone = Arc::clone(&config_guard);
+        let token_clone = cancellation_token.clone();
+        let addr_clone = listen_address.clone();
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) = run_single_udp_listener(
+                app_lifecycle_clone,
+                dns_query_service_clone,
+                config_guard_clone,
+                token_clone,
+                addr_clone,
+            )
+            .await
+            {
+                error!("UDP listener error: {}", e);
+            }
+        });
+        listener_handles.push(handle);
+    }
+
+    for handle in listener_handles {
+        let _ = handle.await;
+    }
+
+    Ok(())
+}
+
+async fn run_single_udp_listener(
+    app_lifecycle: Arc<dyn AppLifecycleManagerPort>,
+    dns_query_service: Arc<dyn DnsQueryService>,
+    config_guard: Arc<RwLock<AppConfig>>,
+    cancellation_token: CancellationToken,
+    listen_address: String,
+) -> Result<(), std::io::Error> {
     let socket = Arc::new(UdpSocket::bind(&listen_address).await?);
     info!("UDP listener started on {}", listen_address);
     app_lifecycle
         .add_listener_address(format!("UDP:{listen_address}"))
         .await;
 
-    let cancellation_token = app_lifecycle.get_cancellation_token();
-
     loop {
         let mut buf = vec![0; 512];
         tokio::select! {
             _ = cancellation_token.cancelled() => {
-                info!("UDP listener shutting down.");
+                info!("UDP listener on {} shutting down.", listen_address);
                 break;
             }
             recv_result = socket.recv_from(&mut buf) => {
@@ -65,7 +106,7 @@ pub(crate) async fn run_udp_listener(
                         );
                     }
                     Err(e) => {
-                        error!("Error receiving UDP packet: {}", e);
+                        error!("Error receiving UDP packet on {}: {}", listen_address, e);
                         if e.kind() == std::io::ErrorKind::ConnectionReset {
                              tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         }

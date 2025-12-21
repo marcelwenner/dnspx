@@ -1,9 +1,13 @@
+use crate::adapters::cli::debug_commands::{ResolveOptions, ResolutionTrace};
+use crate::adapters::cli::output::{render, OutputFormat};
 use crate::adapters::cli::split_dns_generator::{
     format_human_output, generate_split_dns_output,
 };
+use crate::config::validation::{validate_config, ValidationContext};
 use crate::core::error::{CliError, UserInputError};
 use crate::core::types::{
-    AppStatus, CliCommand, CliOutput, MessageLevel, SplitDnsSetupOptions, UpdateResult,
+    AppStatus, CliCommand, CliOutput, DebugResolveOptions, MessageLevel, SplitDnsSetupOptions,
+    UpdateResult,
 };
 use crate::ports::{AppLifecycleManagerPort, InteractiveCliPort, UserInteractionPort};
 use async_trait::async_trait;
@@ -18,7 +22,10 @@ fn parse_split_dns_setup_command(input: &str) -> CliCommand {
 
     for part in parts.iter().skip(1) {
         match *part {
-            "--json" => options.json_output = true,
+            "--json" => {
+                // Deprecated: use --format json instead
+                // Keep for backward compatibility but ignore (global format handles it)
+            }
             "--print-domains" => options.print_domains_only = true,
             _ => {} // Ignore unknown flags
         }
@@ -27,13 +34,50 @@ fn parse_split_dns_setup_command(input: &str) -> CliCommand {
     CliCommand::SplitDnsSetup(options)
 }
 
+fn parse_debug_resolve_command(input: &str) -> Option<CliCommand> {
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let domain = parts[2].to_string();
+    let mut record_type = "A".to_string();
+    let mut no_cache = false;
+
+    let mut i = 3;
+    while i < parts.len() {
+        match parts[i] {
+            "--type" if i + 1 < parts.len() => {
+                record_type = parts[i + 1].to_uppercase();
+                i += 2;
+            }
+            "--no-cache" => {
+                no_cache = true;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+
+    Some(CliCommand::DebugResolve(DebugResolveOptions {
+        domain,
+        record_type,
+        no_cache,
+    }))
+}
+
 pub(crate) struct ConsoleCliAdapter {
     colors_enabled: bool,
+    output_format: OutputFormat,
 }
 
 impl ConsoleCliAdapter {
-    pub(crate) fn new(colors_enabled: bool) -> Self {
-        Self { colors_enabled }
+    pub(crate) fn new(colors_enabled: bool, output_format: OutputFormat) -> Self {
+        Self {
+            colors_enabled,
+            output_format,
+        }
     }
 
     fn colorize(&self, text: &str, color: Color) -> ColoredString {
@@ -58,13 +102,16 @@ impl ConsoleCliAdapter {
             ("scan", "Trigger AWS resource scan"),
             ("aws scan", "Trigger AWS resource scan"),
             ("config", "Show current configuration"),
+            ("config validate", "Validate configuration file"),
+            ("config print-default", "Print default configuration template"),
+            ("debug resolve <domain>", "Trace DNS resolution path"),
             ("split-dns-setup", "Generate split-DNS setup commands"),
             ("update", "Show update help"),
             ("exit, quit, q", "Exit the application"),
         ];
 
         for (cmd, desc) in commands {
-            println!("  {:<15} {}", self.colorize(cmd, Color::Yellow), desc);
+            println!("  {:<20} {}", self.colorize(cmd, Color::Yellow), desc);
         }
 
         println!();
@@ -139,6 +186,8 @@ impl ConsoleCliAdapter {
                 "reload" | "r" => CliCommand::ReloadConfig,
                 "scan" | "aws scan" => CliCommand::TriggerAwsScan,
                 "config" => CliCommand::GetConfig(None),
+                "config validate" => CliCommand::ConfigValidate,
+                "config print-default" => CliCommand::ConfigPrintDefault,
                 "update check" => CliCommand::UpdateCheck,
                 "update install" => CliCommand::UpdateInstall,
                 "update status" => CliCommand::UpdateStatus,
@@ -147,6 +196,18 @@ impl ConsoleCliAdapter {
                 "help" | "h" => CliCommand::Help,
                 "exit" | "quit" | "q" => CliCommand::Exit,
                 "" => continue,
+                _ if command_str.starts_with("debug resolve ") => {
+                    match parse_debug_resolve_command(command_str) {
+                        Some(cmd) => cmd,
+                        None => {
+                            self.display_message(
+                                "Usage: debug resolve <domain> [--type A|AAAA|MX|...] [--no-cache]",
+                                MessageLevel::Warning,
+                            );
+                            continue;
+                        }
+                    }
+                }
                 _ if command_str.starts_with("split-dns-setup") => {
                     parse_split_dns_setup_command(command_str)
                 }
@@ -484,6 +545,70 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                 let config = app_lifecycle.get_config();
                 Ok(CliOutput::Config(config))
             }
+            CliCommand::ConfigValidate => {
+                let config_arc = app_lifecycle.get_config();
+                let config = config_arc.read().await;
+                let ctx = ValidationContext {
+                    aws_enabled: cfg!(feature = "aws"),
+                    tui_enabled: cfg!(feature = "tui"),
+                    split_dns_enabled: true,
+                };
+                let status = app_lifecycle.get_app_status().await;
+                let config_path = status
+                    .config_status
+                    .source_file_path
+                    .unwrap_or_else(|| "unknown".to_string());
+                let result = validate_config(&config, &config_path, &ctx);
+                let output = render(&result, self.output_format);
+                Ok(CliOutput::Message(output))
+            }
+            CliCommand::ConfigPrintDefault => {
+                const DEFAULT_CONFIG_TEMPLATE: &str =
+                    include_str!("../../../assets/default_config.toml");
+                Ok(CliOutput::Message(DEFAULT_CONFIG_TEMPLATE.to_string()))
+            }
+            CliCommand::DebugResolve(options) => {
+                if let Some(debug_resolver) = app_lifecycle.get_debug_resolver() {
+                    let resolve_options = ResolveOptions {
+                        collect_trace: true,
+                        skip_cache: options.no_cache,
+                        no_store: options.no_cache,
+                    };
+
+                    let trace = debug_resolver
+                        .resolve_with_trace(&options.domain, &options.record_type, resolve_options)
+                        .await;
+
+                    let output = render(&trace, self.output_format);
+                    Ok(CliOutput::Message(output))
+                } else {
+                    let trace = ResolutionTrace {
+                        domain: options.domain.clone(),
+                        record_type: options.record_type.clone(),
+                        search_expansion: vec![],
+                        resolved_name: None,
+                        local_hosts_checked: false,
+                        local_hosts_matched: false,
+                        cname_chain: None,
+                        cache_checked: false,
+                        cache_hit: false,
+                        rules_evaluated: vec![],
+                        matched_rule: None,
+                        instruction: None,
+                        upstream_used: None,
+                        latency_ms: 0,
+                        response_code: None,
+                        answers: vec![],
+                        error: Some(
+                            "Debug resolver not available. DNS processor may not be initialized yet."
+                                .to_string(),
+                        ),
+                    };
+
+                    let output = render(&trace, self.output_format);
+                    Ok(CliOutput::Message(output))
+                }
+            }
             CliCommand::UpdateCheck => {
                 if let Some(update_manager) = app_lifecycle.get_update_manager() {
                     match update_manager.check_for_updates().await {
@@ -628,18 +753,19 @@ impl InteractiveCliPort for ConsoleCliAdapter {
                     // Just print domains, one per line
                     let domains_output = output.domains.effective.join("\n");
                     Ok(CliOutput::Message(domains_output))
-                } else if options.json_output {
-                    // JSON output
-                    match serde_json::to_value(&output) {
-                        Ok(json) => Ok(CliOutput::Json(json)),
-                        Err(e) => Err(CliError::Execution(format!(
-                            "Failed to serialize output: {e}"
-                        ))),
-                    }
                 } else {
-                    // Human-readable output
-                    let formatted = format_human_output(&output);
-                    Ok(CliOutput::Message(formatted))
+                    match self.output_format {
+                        OutputFormat::Json => match serde_json::to_value(&output) {
+                            Ok(json) => Ok(CliOutput::Json(json)),
+                            Err(e) => Err(CliError::Execution(format!(
+                                "Failed to serialize output: {e}"
+                            ))),
+                        },
+                        OutputFormat::Human => {
+                            let formatted = format_human_output(&output);
+                            Ok(CliOutput::Message(formatted))
+                        }
+                    }
                 }
             }
             CliCommand::Exit => Ok(CliOutput::Message("Initiating shutdown...".to_string())),

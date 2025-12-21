@@ -2,7 +2,7 @@ use crate::config::models::{AppConfig, HostsLoadBalancing, LocalHostsConfig};
 use crate::core::error::ConfigError;
 use crate::dns_protocol::{DnsMessage, DnsQuestion};
 use hickory_proto::op::ResponseCode;
-use hickory_proto::rr::rdata::PTR;
+use hickory_proto::rr::rdata::{CNAME, PTR};
 use hickory_proto::rr::{Name, RData, Record, RecordType};
 use notify::{
     Error as NotifyError, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
@@ -25,13 +25,15 @@ pub(crate) struct LocalHostsResolver {
     config: Arc<RwLock<AppConfig>>,
     hosts: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>,
     reverse_hosts: Arc<RwLock<HashMap<IpAddr, Vec<String>>>>,
+    /// CNAME aliases: maps hostname to target hostname
+    cnames: Arc<RwLock<HashMap<String, String>>>,
     file_watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
     shutdown_token: CancellationToken,
 }
 
 impl LocalHostsResolver {
     pub(crate) async fn new(config: Arc<RwLock<AppConfig>>) -> Arc<Self> {
-        let (hosts_map, reverse_map) = {
+        let (hosts_map, reverse_map, cnames_map) = {
             let config_guard = config.read().await;
             Self::load_hosts_from_config_struct(config_guard.local_hosts.as_ref()).await
         };
@@ -40,6 +42,7 @@ impl LocalHostsResolver {
             config,
             hosts: Arc::new(RwLock::new(hosts_map)),
             reverse_hosts: Arc::new(RwLock::new(reverse_map)),
+            cnames: Arc::new(RwLock::new(cnames_map)),
             file_watcher: Arc::new(Mutex::new(None)),
             shutdown_token: CancellationToken::new(),
         })
@@ -47,9 +50,14 @@ impl LocalHostsResolver {
 
     async fn load_hosts_from_config_struct(
         local_hosts_config_opt: Option<&LocalHostsConfig>,
-    ) -> (HashMap<String, Vec<IpAddr>>, HashMap<IpAddr, Vec<String>>) {
+    ) -> (
+        HashMap<String, Vec<IpAddr>>,
+        HashMap<IpAddr, Vec<String>>,
+        HashMap<String, String>,
+    ) {
         let mut hosts_map: HashMap<String, Vec<IpAddr>> = HashMap::new();
         let mut reverse_map: HashMap<IpAddr, Vec<String>> = HashMap::new();
+        let mut cnames_map: HashMap<String, String> = HashMap::new();
 
         if let Some(local_hosts_config) = local_hosts_config_opt {
             for (domain, ip_vec) in &local_hosts_config.entries {
@@ -63,6 +71,13 @@ impl LocalHostsResolver {
                             .push(normalized_domain.clone());
                     }
                 }
+            }
+
+            // Load CNAME aliases
+            for (alias, target) in &local_hosts_config.cnames {
+                let normalized_alias = alias.trim_end_matches('.').to_lowercase();
+                let normalized_target = target.trim_end_matches('.').to_lowercase();
+                cnames_map.insert(normalized_alias, normalized_target);
             }
 
             if let Some(file_path) = &local_hosts_config.file_path {
@@ -98,20 +113,22 @@ impl LocalHostsResolver {
             }
         }
         info!(
-            "LocalHostsResolver: Loaded {} distinct domain entries from config.",
-            hosts_map.len()
+            "LocalHostsResolver: Loaded {} distinct domain entries and {} CNAME aliases from config.",
+            hosts_map.len(),
+            cnames_map.len()
         );
-        (hosts_map, reverse_map)
+        (hosts_map, reverse_map, cnames_map)
     }
 
     pub(crate) async fn update_hosts(&self) {
         info!("LocalHostsResolver: Reloading hosts due to config change or file watch.");
-        let (new_hosts, new_reverse_hosts) = {
+        let (new_hosts, new_reverse_hosts, new_cnames) = {
             let config_guard = self.config.read().await;
             Self::load_hosts_from_config_struct(config_guard.local_hosts.as_ref()).await
         };
 
         *self.hosts.write().await = new_hosts;
+        *self.cnames.write().await = new_cnames;
         let mut reverse_write_guard = self.reverse_hosts.write().await;
         *reverse_write_guard = new_reverse_hosts;
 
@@ -143,14 +160,66 @@ impl LocalHostsResolver {
         response.set_authoritative(true);
 
         match question.record_type {
+            RecordType::CNAME => {
+                // Direct CNAME query - return the CNAME record if exists
+                let cnames_guard = self.cnames.read().await;
+                if let Some(target) = cnames_guard.get(&normalized_name) {
+                    debug!(
+                        "LocalHosts: Matched CNAME record for {}: {}",
+                        normalized_name, target
+                    );
+                    let fqdn_target = format!("{target}.");
+                    if let Ok(target_name) = Name::from_str(&fqdn_target) {
+                        if let Ok(query_name_obj) = Name::from_str(&question.name) {
+                            let rdata = RData::CNAME(CNAME(target_name));
+                            let record = Record::from_rdata(query_name_obj, hosts_ttl, rdata);
+                            response.add_answer_record(record);
+                            return Some(response);
+                        }
+                    }
+                }
+            }
             RecordType::A | RecordType::AAAA => {
                 let hosts_guard = self.hosts.read().await;
-                if let Some(ip_addrs_vec) = hosts_guard.get(&normalized_name) {
+                let cnames_guard = self.cnames.read().await;
+
+                // First check for direct A/AAAA entry
+                let (lookup_name, cname_record) =
+                    if let Some(target) = cnames_guard.get(&normalized_name) {
+                        // We have a CNAME - create the CNAME record and look up the target
+                        debug!(
+                            "LocalHosts: Found CNAME for {}: {}",
+                            normalized_name, target
+                        );
+                        let fqdn_target = format!("{target}.");
+                        let cname_rec = if let Ok(target_name) = Name::from_str(&fqdn_target) {
+                            if let Ok(query_name_obj) = Name::from_str(&question.name) {
+                                let rdata = RData::CNAME(CNAME(target_name));
+                                Some(Record::from_rdata(query_name_obj, hosts_ttl, rdata))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        (target.clone(), cname_rec)
+                    } else {
+                        (normalized_name.clone(), None)
+                    };
+
+                let is_cname_lookup = cname_record.is_some();
+
+                if let Some(ip_addrs_vec) = hosts_guard.get(&lookup_name) {
                     if ip_addrs_vec.is_empty() {
                         return None;
                     }
 
                     let mut records_to_add: Vec<Record> = Vec::new();
+
+                    // Add CNAME record first if we followed a CNAME
+                    if let Some(cname_rec) = cname_record {
+                        records_to_add.push(cname_rec);
+                    }
 
                     let ips_to_process: Vec<IpAddr> = match load_balancing_strategy {
                         HostsLoadBalancing::All => ip_addrs_vec.clone(),
@@ -161,40 +230,47 @@ impl LocalHostsResolver {
                             .map_or(Vec::new(), |ip| vec![ip]),
                     };
 
+                    // For A/AAAA records following a CNAME, use the target name
+                    let record_name = if is_cname_lookup {
+                        format!("{lookup_name}.")
+                    } else {
+                        question.name.clone()
+                    };
+
                     for ip_addr_ref in ips_to_process {
                         let ip_addr = ip_addr_ref;
                         match (ip_addr, question.record_type) {
                             (IpAddr::V4(ipv4), RecordType::A) => {
                                 debug!(
                                     "LocalHosts: Matched A record for {}: {}",
-                                    normalized_name, ipv4
+                                    lookup_name, ipv4
                                 );
                                 let rdata = RData::A(ipv4.into());
-                                match Name::from_str(&question.name) {
+                                match Name::from_str(&record_name) {
                                     Ok(name_obj) => {
                                         records_to_add
                                             .push(Record::from_rdata(name_obj, hosts_ttl, rdata));
                                     }
                                     Err(e) => warn!(
                                         "LocalHosts: Failed to parse name for A record '{}': {}",
-                                        question.name, e
+                                        record_name, e
                                     ),
                                 }
                             }
                             (IpAddr::V6(ipv6), RecordType::AAAA) => {
                                 debug!(
                                     "LocalHosts: Matched AAAA record for {}: {}",
-                                    normalized_name, ipv6
+                                    lookup_name, ipv6
                                 );
                                 let rdata = RData::AAAA(ipv6.into());
-                                match Name::from_str(&question.name) {
+                                match Name::from_str(&record_name) {
                                     Ok(name_obj) => {
                                         records_to_add
                                             .push(Record::from_rdata(name_obj, hosts_ttl, rdata));
                                     }
                                     Err(e) => warn!(
                                         "LocalHosts: Failed to parse name for AAAA record '{}': {}",
-                                        question.name, e
+                                        record_name, e
                                     ),
                                 }
                             }
@@ -208,6 +284,10 @@ impl LocalHostsResolver {
                         }
                         return Some(response);
                     }
+                } else if is_cname_lookup {
+                    // We have a CNAME but the target doesn't resolve locally
+                    // Return None so upstream can resolve the target
+                    return None;
                 }
             }
             RecordType::PTR => {
@@ -914,13 +994,14 @@ mod tests {
 
         let local_hosts_conf = LocalHostsConfig {
             entries: entries_config,
+            cnames: BTreeMap::new(),
             file_path: Some(temp_file.path().to_path_buf()),
             watch_file: false,
             ttl: 300,
             load_balancing: HostsLoadBalancing::All,
         };
 
-        let (hosts_map, _) =
+        let (hosts_map, _, _) =
             LocalHostsResolver::load_hosts_from_config_struct(Some(&local_hosts_conf)).await;
 
         assert_eq!(
@@ -946,6 +1027,7 @@ mod tests {
 
         let local_hosts_conf = LocalHostsConfig {
             entries: BTreeMap::new(),
+            cnames: BTreeMap::new(),
             file_path: Some(temp_file.path().to_path_buf()),
             watch_file: true,
             ttl: 300,
@@ -1066,5 +1148,217 @@ mod tests {
         for handle in handles {
             handle.await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn test_cname_direct_query() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "nas.home.arpa".to_string(),
+            vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))],
+        );
+        let mut cnames = BTreeMap::new();
+        cnames.insert("www.home.arpa".to_string(), "nas.home.arpa".to_string());
+
+        let config = create_test_app_config(Some(LocalHostsConfig {
+            entries,
+            cnames,
+            ttl: 60,
+            ..Default::default()
+        }));
+        let resolver = LocalHostsResolver::new(config).await;
+
+        // Query for CNAME record directly
+        let (question, query_msg) = create_query("www.home.arpa", RecordType::CNAME);
+        let response_opt = resolver.resolve(&question, &query_msg).await;
+
+        assert!(response_opt.is_some());
+        let response = response_opt.unwrap();
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+
+        let answers: Vec<&Record> = response.answers().collect();
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].ttl(), 60);
+
+        if let RData::CNAME(cname_data) = answers[0].data() {
+            assert_eq!(cname_data.0.to_utf8().to_lowercase(), "nas.home.arpa.");
+        } else {
+            panic!("Expected CNAME record, got {:?}", answers[0].data());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cname_a_record_resolution() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "nas.home.arpa".to_string(),
+            vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))],
+        );
+        let mut cnames = BTreeMap::new();
+        cnames.insert("www.home.arpa".to_string(), "nas.home.arpa".to_string());
+
+        let config = create_test_app_config(Some(LocalHostsConfig {
+            entries,
+            cnames,
+            ttl: 120,
+            ..Default::default()
+        }));
+        let resolver = LocalHostsResolver::new(config).await;
+
+        // Query for A record on CNAME alias
+        let (question, query_msg) = create_query("www.home.arpa", RecordType::A);
+        let response_opt = resolver.resolve(&question, &query_msg).await;
+
+        assert!(response_opt.is_some());
+        let response = response_opt.unwrap();
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+
+        let answers: Vec<&Record> = response.answers().collect();
+        // Should have CNAME + A record
+        assert_eq!(answers.len(), 2);
+
+        // First record should be CNAME
+        if let RData::CNAME(cname_data) = answers[0].data() {
+            assert_eq!(cname_data.0.to_utf8().to_lowercase(), "nas.home.arpa.");
+        } else {
+            panic!("Expected CNAME record first, got {:?}", answers[0].data());
+        }
+
+        // Second record should be A record for the target
+        if let RData::A(ip) = answers[1].data() {
+            assert_eq!(**ip, Ipv4Addr::new(192, 168, 1, 100));
+        } else {
+            panic!("Expected A record second, got {:?}", answers[1].data());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cname_aaaa_record_resolution() {
+        let mut entries = BTreeMap::new();
+        let ipv6_addr = Ipv6Addr::from_str("2001:db8::1").unwrap();
+        entries.insert("nas.home.arpa".to_string(), vec![IpAddr::V6(ipv6_addr)]);
+        let mut cnames = BTreeMap::new();
+        cnames.insert("www.home.arpa".to_string(), "nas.home.arpa".to_string());
+
+        let config = create_test_app_config(Some(LocalHostsConfig {
+            entries,
+            cnames,
+            ttl: 60,
+            ..Default::default()
+        }));
+        let resolver = LocalHostsResolver::new(config).await;
+
+        // Query for AAAA record on CNAME alias
+        let (question, query_msg) = create_query("www.home.arpa", RecordType::AAAA);
+        let response_opt = resolver.resolve(&question, &query_msg).await;
+
+        assert!(response_opt.is_some());
+        let response = response_opt.unwrap();
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+
+        let answers: Vec<&Record> = response.answers().collect();
+        assert_eq!(answers.len(), 2);
+
+        // First record should be CNAME
+        if let RData::CNAME(cname_data) = answers[0].data() {
+            assert_eq!(cname_data.0.to_utf8().to_lowercase(), "nas.home.arpa.");
+        } else {
+            panic!("Expected CNAME record first");
+        }
+
+        // Second record should be AAAA
+        if let RData::AAAA(ip) = answers[1].data() {
+            assert_eq!(**ip, ipv6_addr);
+        } else {
+            panic!("Expected AAAA record second");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cname_target_not_in_local_hosts() {
+        // CNAME points to external target - should return None to let upstream resolve
+        let mut cnames = BTreeMap::new();
+        cnames.insert(
+            "alias.home.arpa".to_string(),
+            "external.example.com".to_string(),
+        );
+
+        let config = create_test_app_config(Some(LocalHostsConfig {
+            entries: BTreeMap::new(),
+            cnames,
+            ttl: 60,
+            ..Default::default()
+        }));
+        let resolver = LocalHostsResolver::new(config).await;
+
+        let (question, query_msg) = create_query("alias.home.arpa", RecordType::A);
+        let response_opt = resolver.resolve(&question, &query_msg).await;
+
+        // Should return None so the query goes upstream
+        assert!(response_opt.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cname_no_match() {
+        let config = create_test_app_config(Some(LocalHostsConfig {
+            entries: BTreeMap::new(),
+            cnames: BTreeMap::new(),
+            ttl: 60,
+            ..Default::default()
+        }));
+        let resolver = LocalHostsResolver::new(config).await;
+
+        let (question, query_msg) = create_query("unknown.home.arpa", RecordType::CNAME);
+        let response_opt = resolver.resolve(&question, &query_msg).await;
+
+        assert!(response_opt.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cname_case_insensitivity() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "nas.home.arpa".to_string(),
+            vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))],
+        );
+        let mut cnames = BTreeMap::new();
+        cnames.insert("WWW.HOME.ARPA".to_string(), "NAS.HOME.ARPA".to_string());
+
+        let config = create_test_app_config(Some(LocalHostsConfig {
+            entries,
+            cnames,
+            ttl: 60,
+            ..Default::default()
+        }));
+        let resolver = LocalHostsResolver::new(config).await;
+
+        // Query with different case
+        let (question, query_msg) = create_query("www.home.arpa", RecordType::A);
+        let response_opt = resolver.resolve(&question, &query_msg).await;
+
+        assert!(response_opt.is_some());
+        let response = response_opt.unwrap();
+        assert_eq!(response.answers().count(), 2); // CNAME + A
+    }
+
+    #[tokio::test]
+    async fn test_cname_load_from_config() {
+        let mut cnames = BTreeMap::new();
+        cnames.insert("alias1.test".to_string(), "target1.test".to_string());
+        cnames.insert("alias2.test".to_string(), "target2.test".to_string());
+
+        let local_hosts_conf = LocalHostsConfig {
+            entries: BTreeMap::new(),
+            cnames,
+            ttl: 60,
+            ..Default::default()
+        };
+
+        let (_, _, cnames_map) =
+            LocalHostsResolver::load_hosts_from_config_struct(Some(&local_hosts_conf)).await;
+
+        assert_eq!(cnames_map.len(), 2);
+        assert_eq!(cnames_map.get("alias1.test"), Some(&"target1.test".to_string()));
+        assert_eq!(cnames_map.get("alias2.test"), Some(&"target2.test".to_string()));
     }
 }

@@ -1,7 +1,8 @@
-use crate::config::models::HttpProxyConfig;
+use crate::config::models::{HttpProxyConfig, ResolverStrategy};
 use crate::core::error::ResolveError;
 use crate::dns_protocol::{DnsMessage, DnsQuestion, parse_dns_message, serialize_dns_message};
 use crate::ports::UpstreamResolver;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket, lookup_host};
@@ -9,11 +10,15 @@ use tokio::time::timeout;
 use tracing::{debug, error, field, instrument, warn};
 use url::Url;
 
-pub(crate) struct StandardDnsClient;
+pub(crate) struct StandardDnsClient {
+    rotate_counter: AtomicUsize,
+}
 
 impl StandardDnsClient {
     pub(crate) fn new() -> Self {
-        Self
+        Self {
+            rotate_counter: AtomicUsize::new(0),
+        }
     }
 
     fn ensure_port(server_str: &str) -> String {
@@ -192,16 +197,115 @@ impl StandardDnsClient {
         span.record("operation_time_ms", overall_start.elapsed().as_millis());
         Ok(response_buffer)
     }
+
+    async fn resolve_dns_fastest(
+        &self,
+        query_bytes: &[u8],
+        query_id: u16,
+        upstream_servers: &[String],
+        timeout_duration: Duration,
+        question_name: &str,
+        span: &tracing::Span,
+        overall_start: Instant,
+    ) -> Result<DnsMessage, ResolveError> {
+        use futures::future::select_all;
+
+        debug!(
+            servers = ?upstream_servers,
+            "Racing {} servers with Fastest strategy",
+            upstream_servers.len()
+        );
+
+        let futures: Vec<_> = upstream_servers
+            .iter()
+            .map(|server| {
+                let server_with_port = Self::ensure_port(server);
+                let query = query_bytes.to_vec();
+                let name = question_name.to_string();
+                let timeout_dur = timeout_duration;
+
+                async move {
+                    let result = self
+                        .resolve_udp_internal(&query, &server_with_port, timeout_dur, &name)
+                        .await;
+                    (server_with_port, result)
+                }
+            })
+            .collect();
+
+        if futures.is_empty() {
+            return Err(ResolveError::NoUpstreamServers);
+        }
+
+        let mut boxed_futures: Vec<_> = futures.into_iter().map(Box::pin).collect();
+
+        let mut last_error: Option<ResolveError> = None;
+
+        while !boxed_futures.is_empty() {
+            let (result, _index, remaining) = select_all(boxed_futures).await;
+            boxed_futures = remaining;
+
+            let (server, resolve_result) = result;
+            match resolve_result {
+                Ok(response_bytes) => {
+                    match parse_dns_message(&response_bytes) {
+                        Ok(response_msg) => {
+                            if response_msg.id() == query_id {
+                                debug!(
+                                    server = %server,
+                                    "Fastest strategy: {} won the race",
+                                    server
+                                );
+                                span.record(
+                                    "total_resolve_time_ms",
+                                    overall_start.elapsed().as_millis(),
+                                );
+                                return Ok(response_msg);
+                            } else {
+                                warn!(
+                                    server = %server,
+                                    expected_id = query_id,
+                                    got_id = response_msg.id(),
+                                    "Mismatched DNS ID, continuing race"
+                                );
+                                last_error = Some(ResolveError::InvalidResponse(format!(
+                                    "Mismatched ID from {server}"
+                                )));
+                            }
+                        }
+                        Err(e) => {
+                            warn!(server = %server, error = %e, "Failed to parse response, continuing race");
+                            last_error = Some(ResolveError::Protocol(e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!(server = %server, error = %e, "Server failed, continuing race");
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        span.record(
+            "total_resolve_time_ms",
+            overall_start.elapsed().as_millis(),
+        );
+        Err(last_error.unwrap_or_else(|| ResolveError::UpstreamServer {
+            server: "all_raced".to_string(),
+            details: "All upstream servers failed in race".to_string(),
+        }))
+    }
 }
 
 #[async_trait::async_trait]
 impl UpstreamResolver for StandardDnsClient {
-    #[instrument(skip(self, question), fields(qname = %question.name, qtype = %question.record_type, total_resolve_time_ms = field::Empty))]
+    #[instrument(skip(self, question), fields(qname = %question.name, qtype = %question.record_type, strategy = ?strategy, total_resolve_time_ms = field::Empty))]
     async fn resolve_dns(
         &self,
         question: &DnsQuestion,
         upstream_servers: &[String],
         timeout_duration: Duration,
+        strategy: ResolverStrategy,
     ) -> Result<DnsMessage, ResolveError> {
         let overall_start_resolve_dns = Instant::now();
         let span_resolve_dns = tracing::Span::current();
@@ -230,9 +334,42 @@ impl UpstreamResolver for StandardDnsClient {
             "DNS query message serialized"
         );
 
+        // Order servers based on strategy
+        let ordered_servers: Vec<String> = match strategy {
+            ResolverStrategy::First => upstream_servers.to_vec(),
+            ResolverStrategy::Random => {
+                use rand::seq::SliceRandom;
+                let mut servers = upstream_servers.to_vec();
+                servers.shuffle(&mut rand::rng());
+                servers
+            }
+            ResolverStrategy::Rotate => {
+                let count = self.rotate_counter.fetch_add(1, Ordering::Relaxed);
+                let start_idx = count % upstream_servers.len();
+                let mut servers = Vec::with_capacity(upstream_servers.len());
+                servers.extend_from_slice(&upstream_servers[start_idx..]);
+                servers.extend_from_slice(&upstream_servers[..start_idx]);
+                servers
+            }
+            ResolverStrategy::Fastest => {
+                // For Fastest, we race all servers in parallel
+                return self
+                    .resolve_dns_fastest(
+                        &query_bytes,
+                        query_id,
+                        upstream_servers,
+                        timeout_duration,
+                        &question.name,
+                        &span_resolve_dns,
+                        overall_start_resolve_dns,
+                    )
+                    .await;
+            }
+        };
+
         let mut last_error: Option<ResolveError> = None;
 
-        for server_str_orig in upstream_servers {
+        for server_str_orig in &ordered_servers {
             let server_processing_start = Instant::now();
             let server_str_with_port = Self::ensure_port(server_str_orig);
             debug!(server = %server_str_with_port, "Attempting DNS resolution via UDP");
@@ -337,6 +474,7 @@ impl UpstreamResolver for StandardDnsClient {
         _question: &DnsQuestion,
         _upstream_urls: &[Url],
         _timeout: Duration,
+        _strategy: ResolverStrategy,
         _http_proxy_config: Option<&HttpProxyConfig>,
     ) -> Result<DnsMessage, ResolveError> {
         error!(
@@ -370,7 +508,7 @@ mod tests {
         let timeout = Duration::from_secs(5);
 
         let result = client
-            .resolve_dns(&question, &upstream_servers, timeout)
+            .resolve_dns(&question, &upstream_servers, timeout, ResolverStrategy::First)
             .await;
 
         // If the test fails due to network issues, just skip it
@@ -420,7 +558,7 @@ mod tests {
 
         // Test with no upstream servers to verify fallback logic exists
         let result = client
-            .resolve_dns(&question, &[], Duration::from_secs(1))
+            .resolve_dns(&question, &[], Duration::from_secs(1), ResolverStrategy::First)
             .await;
 
         assert!(result.is_err());
@@ -457,7 +595,7 @@ mod tests {
         // Test validation of zero-length TCP responses
         // This would be caught in resolve_tcp_internal validation
         let result = client
-            .resolve_dns(&question, &[], Duration::from_secs(1))
+            .resolve_dns(&question, &[], Duration::from_secs(1), ResolverStrategy::First)
             .await;
 
         assert!(result.is_err());
@@ -475,7 +613,7 @@ mod tests {
 
         // Test handling of responses that claim to be too large (>65535 bytes)
         let result = client
-            .resolve_dns(&question, &[], Duration::from_secs(1))
+            .resolve_dns(&question, &[], Duration::from_secs(1), ResolverStrategy::First)
             .await;
 
         assert!(result.is_err());
@@ -494,7 +632,7 @@ mod tests {
         // Test that UDP is tried first, then TCP on truncation/errors
         // The resolve_dns method should attempt UDP first
         let result = client
-            .resolve_dns(&question, &[], Duration::from_secs(1))
+            .resolve_dns(&question, &[], Duration::from_secs(1), ResolverStrategy::First)
             .await;
 
         assert!(result.is_err());
@@ -524,6 +662,7 @@ mod tests {
                 &question,
                 &servers,
                 Duration::from_millis(100), // Short timeout
+                ResolverStrategy::First,
             )
             .await;
 
@@ -549,7 +688,7 @@ mod tests {
         ];
 
         let result = client
-            .resolve_dns(&question, &ordered_servers, Duration::from_millis(100))
+            .resolve_dns(&question, &ordered_servers, Duration::from_millis(100), ResolverStrategy::First)
             .await;
 
         // Should fail after trying all servers in order
@@ -568,7 +707,7 @@ mod tests {
 
         // Test with empty server list
         let result = client
-            .resolve_dns(&question, &[], Duration::from_secs(1))
+            .resolve_dns(&question, &[], Duration::from_secs(1), ResolverStrategy::First)
             .await;
 
         assert!(result.is_err());
@@ -592,7 +731,7 @@ mod tests {
         ];
 
         let result = client
-            .resolve_dns(&question, &mixed_servers, Duration::from_millis(100))
+            .resolve_dns(&question, &mixed_servers, Duration::from_millis(100), ResolverStrategy::First)
             .await;
 
         assert!(result.is_err());
@@ -620,6 +759,7 @@ mod tests {
                 &question,
                 &different_port_servers,
                 Duration::from_millis(100),
+                ResolverStrategy::First,
             )
             .await;
 
@@ -644,7 +784,7 @@ mod tests {
         ];
 
         let result = client
-            .resolve_dns(&question, &error_prone_servers, Duration::from_millis(100))
+            .resolve_dns(&question, &error_prone_servers, Duration::from_millis(100), ResolverStrategy::First)
             .await;
 
         // Should handle all errors and continue trying servers

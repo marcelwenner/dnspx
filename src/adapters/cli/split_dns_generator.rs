@@ -309,7 +309,8 @@ fn generate_linux_commands(host: &str, port: u16, domains: &[String]) -> Command
 /// Generate the full split-DNS setup output
 pub(crate) fn generate_split_dns_output(config: &AppConfig) -> SplitDnsOutput {
     let platform = detect_platform();
-    let listen_address = config.server.listen_address.clone();
+    let listen_addresses = config.server.get_listen_addresses();
+    let listen_address = listen_addresses.first().cloned().unwrap_or_else(|| "0.0.0.0:53".to_string());
     let (host, port) = parse_listen_address(&listen_address);
 
     let domain_info = collect_domains(config);

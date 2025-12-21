@@ -6,6 +6,7 @@ use crate::adapters::aws::types::AwsDiscoveredEndpoint;
 use crate::aws_integration::scanner::AwsVpcScannerTask;
 use crate::config::models::{
     AppConfig, AwsAccountConfig, AwsGlobalConfig, AwsRoleConfig, AwsServiceDiscoveryConfig,
+    ResolverStrategy,
 };
 use crate::core::dns_cache::DnsCache;
 use crate::core::types::{AwsCredentials, AwsScannerStatus};
@@ -564,6 +565,10 @@ impl AppLifecycleManagerPort for MockAppLifecycleManager {
         None
     }
 
+    fn get_debug_resolver(&self) -> Option<Arc<dyn crate::ports::DebugResolverPort>> {
+        None
+    }
+
     async fn get_config_for_processor(&self) -> Arc<RwLock<AppConfig>> {
         Arc::clone(&self.config)
     }
@@ -608,6 +613,7 @@ impl UpstreamResolver for MockUpstreamResolver {
         question: &crate::dns_protocol::DnsQuestion,
         _upstream_servers: &[String],
         _timeout: Duration,
+        _strategy: ResolverStrategy,
     ) -> Result<crate::dns_protocol::DnsMessage, crate::core::error::ResolveError> {
         if let Some(response) = self.responses.lock().unwrap().get(&question.name) {
             match response {
@@ -634,8 +640,9 @@ impl UpstreamResolver for MockUpstreamResolver {
         question: &crate::dns_protocol::DnsQuestion,
         _upstream_urls: &[url::Url],
         _timeout: Duration,
+        _strategy: ResolverStrategy,
         _http_proxy_config: Option<&crate::config::models::HttpProxyConfig>,
     ) -> Result<crate::dns_protocol::DnsMessage, crate::core::error::ResolveError> {
-        self.resolve_dns(question, &[], _timeout).await
+        self.resolve_dns(question, &[], _timeout, ResolverStrategy::First).await
     }
 }

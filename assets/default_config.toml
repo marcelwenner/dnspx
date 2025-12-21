@@ -1,0 +1,209 @@
+# DNSPX Configuration File
+#
+# This is the default configuration template for DNSPX.
+# Uncomment and modify settings as needed.
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+[server]
+# Address to listen on. Default: "0.0.0.0:53"
+# Use a port > 1024 to avoid requiring root privileges.
+listen_address = "0.0.0.0:53"
+
+# Protocols to enable. Options: "Udp", "Tcp"
+protocols = ["Udp", "Tcp"]
+
+# Network whitelist (optional). Only allow queries from these networks.
+# Example: network_whitelist = ["10.0.0.0/8", "192.168.0.0/16"]
+# network_whitelist = []
+
+# Default timeout for upstream queries
+default_query_timeout = "500ms"
+
+# What to do with queries that don't match any routing rule.
+# Options: "UseDefaultResolver", "Refuse", "Servfail"
+unmatched_query_behavior = "UseDefaultResolver"
+
+# ============================================================================
+# Default Resolver Configuration
+# ============================================================================
+[default_resolver]
+# Nameservers to use for queries that don't match specific rules.
+# Supports both standard DNS (IP:PORT) and DNS-over-HTTPS (https://...).
+nameservers = [
+    "1.1.1.1:53",
+    "8.8.8.8:53"
+]
+
+# Strategy for selecting nameservers.
+# Options: "First", "Random", "Rotate", "Fastest"
+strategy = "First"
+
+# Timeout for upstream resolver queries
+timeout = "500ms"
+
+# Enable DNS compression mutation for DoH (for compatibility with some servers)
+doh_compression_mutation = false
+
+# ============================================================================
+# Routing Rules
+# ============================================================================
+# Rules are evaluated in order; first match wins.
+#
+# [[routing_rules]]
+# name = "Example Rule"
+# domain_pattern = ".*\\.example\\.com$"  # Regex pattern
+# action = "Forward"                       # Forward, Block, Allow, ResolveLocal, Refuse, Servfail
+# nameservers = ["10.0.1.53:53"]           # Required for Forward action
+# strategy = "First"                       # Optional: First, Random, Rotate, Fastest
+# timeout = "500ms"                        # Optional: override default timeout
+# invert_match = false                     # Optional: invert the pattern match
+
+# Example: Block ad domains
+# [[routing_rules]]
+# name = "Block Ads"
+# domain_pattern = "^(ads|tracking|analytics)\\."
+# action = "Block"
+
+# Example: Forward internal domains to corporate DNS
+# [[routing_rules]]
+# name = "Corporate DNS"
+# domain_pattern = ".*\\.corp\\.example\\.com$"
+# action = "Forward"
+# nameservers = ["10.0.1.53:53", "10.0.2.53:53"]
+
+# ============================================================================
+# Local Hosts Configuration (Optional)
+# ============================================================================
+# [local_hosts]
+# # Static hostname -> IP mappings
+# [local_hosts.entries]
+# "myhost.local" = ["192.168.1.100"]
+# "database.local" = ["192.168.1.200", "192.168.1.201"]
+#
+# # Optional: Load additional entries from a hosts file
+# file_path = "/etc/hosts.custom"
+# watch_file = true  # Auto-reload on file changes
+#
+# # TTL for local hosts responses (seconds)
+# ttl = 300
+#
+# # Load balancing for multi-IP entries
+# # Options: "All", "Random", "First"
+# load_balancing = "All"
+
+# ============================================================================
+# DNS Cache Configuration
+# ============================================================================
+[cache]
+enabled = true
+max_capacity = 10000
+
+# TTL bounds - responses are cached within these limits
+min_ttl = "60s"
+max_ttl = "86400s"  # 24 hours
+
+# Serve stale responses if upstream fails
+serve_stale_if_error = true
+serve_stale_max_ttl = "3600s"  # 1 hour
+
+# ============================================================================
+# HTTP Proxy Configuration (Optional)
+# ============================================================================
+# [http_proxy]
+# url = "http://proxy.example.com:8080"
+# authentication_type = "None"  # None, Basic, Ntlm, WindowsAuth
+# username = "user"
+# password = "password"
+# domain = "DOMAIN"  # For NTLM
+# bypass_list = ["*.internal.example.com"]
+
+# ============================================================================
+# AWS Integration (Optional)
+# ============================================================================
+# [aws]
+# default_region = "us-east-1"
+# scan_interval = "900s"  # 15 minutes
+# credentials_cache_enabled = true
+# credential_cache_ttl = "3000s"  # 50 minutes
+#
+# # Route53 Inbound Endpoint IPs for resolving private hosted zones
+# route53_inbound_endpoint_ips = ["10.0.1.53", "10.0.2.53"]
+#
+# [[aws.accounts]]
+# label = "Production Account"
+# account_id = "123456789012"
+# profile_name = "production"  # AWS CLI profile to use
+# scan_regions = ["us-east-1", "eu-west-1"]
+# scan_vpc_ids = ["vpc-12345678"]
+#
+# [aws.accounts.discover_services]
+# vpc_endpoints = true
+# ec2_instances = false
+# rds_instances = false
+# elasticache_clusters = false
+# docdb_clusters = false
+# api_gateways_private = false
+#
+# # Assume roles in other accounts
+# [[aws.accounts.roles_to_assume]]
+# role_arn = "arn:aws:iam::987654321098:role/DNSDiscoveryRole"
+# label = "Staging Account"
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+
+# Log format: Pretty, Json, Compact
+format = "Pretty"
+
+# Enable DNS query logging (verbose)
+query_log_enabled = false
+
+# ============================================================================
+# CLI Configuration
+# ============================================================================
+[cli]
+# Enable colored output
+enable_colors = true
+
+# Status refresh interval in TUI mode
+status_refresh_interval_secs = 5
+
+# ============================================================================
+# Update Configuration (Optional)
+# ============================================================================
+# [update]
+# enabled = true
+# github_repo = "marcelwenner/dnspx"
+# check_interval = "14400s"  # 4 hours
+#
+# [update.security]
+# verify_checksums = true
+# verify_signatures = false
+# require_attestations = false
+#
+# [update.auto_update_policy]
+# update_level = "PatchOnly"  # None, PatchOnly, MinorAndPatch, All
+# allow_breaking_changes = false
+#
+# [update.rollback]
+# enabled = true
+# keep_backups = 3
+# health_check_enabled = true
+# health_check_timeout = "30s"
+
+# ============================================================================
+# Split DNS Configuration (Optional)
+# ============================================================================
+# [split_dns]
+# # Explicit domains to route through DNSPX.
+# # If empty, domains are auto-extracted from routing rules.
+# domains = [
+#     "corp.example.com",
+#     "internal.example.com"
+# ]
